@@ -12,9 +12,12 @@
 
 
 # TODO
-1. Train stub with resume and parameter dumping
-2. cityscapes train/val jsons.
-3. Eval code based on results in exp dir and images from some json, creating predictions and numbers.
+1. Augmentations
+2. Eval code based on results in exp dir and images from some json, creating predictions and numbers.
+3. Test all three losses
+4. Add parametrization to the network (which convs, which blocks etc.)
+5. Add an E-net
+
 
 
 
