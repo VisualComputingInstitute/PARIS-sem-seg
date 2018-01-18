@@ -3,7 +3,9 @@
 from argparse import ArgumentParser
 import glob
 import os
+
 import cv2
+import numpy as np
 try:
     from tqdm import tqdm
 except ImportError:
@@ -40,7 +42,7 @@ def main():
     image_filenames = glob.glob(
         os.path.join(args.cityscapes_root, 'leftImg8bit') + '/*/*/*.png')
 
-    for filename in tqdm(image_filenames):
+    for filename in tqdm(image_filenames, desc='Resizing images'):
         image = cv2.imread(filename)
         h, w, _ = image.shape
         h = h // args.downscale_factor
@@ -56,13 +58,20 @@ def main():
     label_filenames = glob.glob(
         os.path.join(args.cityscapes_root, 'gt') + '*/*/*/*labelIds.png')
 
-    for filename in tqdm(label_filenames):
+    # Setup the cityscapes train re-labeling map since not all classes are used.
+    label_to_train_label = (np.array([
+        -1, -1, -1, -1, -1, -1, -1,  0,  1, -1, -1,  2,  3,  4, -1, -1, -1,  5,
+        -1,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, -1, -1, 16, 17, 18, -1
+        ]) + 1).astype(np.uint8)
+
+    for filename in tqdm(label_filenames, desc='Resizing labels'):
         labels = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
         h, w = labels.shape
         h = h // args.downscale_factor
         w = w // args.downscale_factor
+        labels = label_to_train_label[labels]
         labels = utils.soft_resize_labels(
-            labels, (w, h), args.label_threshold, void_label=1)
+            labels, (w, h), args.label_threshold, void_label=0)
         target = filename.replace(args.cityscapes_root, args.target_root)
         target_path = os.path.dirname(target)
         if not os.path.exists(target_path):
