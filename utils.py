@@ -1,8 +1,11 @@
-#!/usr/bin/env python3
+from argparse import ArgumentTypeError
+import logging
+import os
+import signal
+
 import cv2
 import numpy as np
-import os
-
+import tensorflow as tf
 
 def check_directory(arg, access=os.W_OK, access_str="writeable"):
     """ Check for directory-type argument validity.
@@ -93,6 +96,11 @@ def number_between_x(arg, type_, low=None, high=None, inclusive_low=False,
 def positive_int(arg):
     return number_between_x(arg, int, 0, None)
 
+def positive_float(arg):
+    return number_between_x(arg, float, 0, None)
+
+def nonnegative_int(arg):
+    return number_between_x(arg, int, -1, None)
 
 def zero_one_float(arg):
     return number_between_x(arg, float, 0, 1, True, True)
@@ -124,6 +132,10 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
         possible_labels.remove(void_label)
     possible_labels = np.asarray(list(possible_labels))
 
+    if len(possible_labels) == 0:
+        #This image is empty. We can simply return an image full of void labels.
+        return np.full(new_size[::-1], void_label, dtype=labels.dtype)
+
     label_vol = np.zeros(
         (labels.shape[0], labels.shape[1], len(possible_labels)))
     for i, l in enumerate(possible_labels):
@@ -136,7 +148,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     if len(label_vol.shape) == 2:
         label_vol = np.reshape(label_vol, (*label_vol.shape, 1))
 
-    # Fin the max label using this mapping and the actual label value
+    # Find the max label using this mapping and the actual label value
     max_idx = np.argmax(label_vol, 2)
     max_val = np.max(label_vol,2)
 
@@ -146,3 +158,137 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     max_idx[max_val < valid_threshold] = void_label
 
     return max_idx.astype(labels.dtype)
+
+
+def load_dataset(csv_file, dataset_root):
+    '''Loads a dataset by reading image, label filenames tuples from a file.
+
+    Args:
+        csv_file: A string containing the path to the dataset csv file. Each
+            line should contain an image and a label filename tuple.
+        dataset_root: A string with the dataset root directory. This is
+            prepended to each filename and it is verified all files exist.
+
+    Returns:
+        A tuple of string lists containing image filenames and label filenames.
+
+    Raises:
+        IOError if any one file is missing.
+    '''
+    dataset = np.genfromtxt(csv_file, delimiter=',', dtype='|U')
+
+    image_files = []
+    label_files = []
+    missing = []
+
+    for image, labels in dataset:
+        image_files.append(os.path.join(dataset_root, image.strip()))
+        label_files.append(os.path.join(dataset_root, labels.strip()))
+
+        if not os.path.isfile(image_files[-1]):
+            missing.append(image_files[-1])
+
+        if not os.path.isfile(label_files[-1]):
+            missing.append(label_files[-1])
+
+    if len(missing) > 1:
+        raise IOError('Using the `{}` file and `{}` as a dataset root '
+                      '{} files are missing:\n{}'.format(
+                          csv_file, dataset_root, len(missing),
+                          '\n'.join(missing)))
+
+    return image_files, label_files
+
+
+def string_tuple_to_image_pair(image_file, label_file, label_offset):
+    image_encoded = tf.read_file(image_file)
+    image_decoded = tf.to_float(tf.image.decode_png(image_encoded, channels=3))
+
+    labels_encoded = tf.read_file(label_file)
+    labels_decoded = tf.cast(
+        tf.image.decode_png(labels_encoded, channels=1), tf.int32)
+    labels_decoded = labels_decoded - label_offset
+
+    return image_decoded, labels_decoded
+
+
+def get_logging_dict(name):
+    return {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'standard': {
+                'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+            },
+        },
+        'handlers': {
+            'stderr': {
+                'class': 'logging.StreamHandler',
+                'level': 'INFO',
+                'formatter': 'standard',
+                'stream': 'ext://sys.stderr',
+            },
+            'logfile': {
+                'level': 'DEBUG',
+                'formatter': 'standard',
+                'class': 'logging.FileHandler',
+                'filename': name + '.log',
+                'mode': 'a',
+            }
+        },
+        'loggers': {
+            '': {
+                'handlers': ['stderr', 'logfile'],
+                'level': 'DEBUG',
+                'propagate': True
+            },
+
+            # extra ones to shut up.
+            'tensorflow': {
+                'handlers': ['stderr', 'logfile'],
+                'level': 'INFO',
+            },
+        }
+    }
+
+# This class comes from Lucas Beyer's toolbox which can be found at https://github.com/lucasb-eyer/lbtoolbox.
+# It is based on an original idea from https://gist.github.com/nonZero/2907502 and heavily modified.
+class Uninterrupt(object):
+    """
+    Use as:
+    with Uninterrupt() as u:
+        while not u.interrupted:
+            # train
+    """
+    def __init__(self, sigs=(signal.SIGINT,), verbose=False):
+        self.sigs = sigs
+        self.verbose = verbose
+        self.interrupted = False
+        self.orig_handlers = None
+
+    def __enter__(self):
+        if self.orig_handlers is not None:
+            raise ValueError("Can only enter `Uninterrupt` once!")
+
+        self.interrupted = False
+        self.orig_handlers = [signal.getsignal(sig) for sig in self.sigs]
+
+        def handler(signum, frame):
+            self.release()
+            self.interrupted = True
+            if self.verbose:
+                print("Interruption scheduled...", flush=True)
+
+        for sig in self.sigs:
+            signal.signal(sig, handler)
+
+        return self
+
+    def __exit__(self, type_, value, tb):
+        self.release()
+
+    def release(self):
+        if self.orig_handlers is not None:
+            for sig, orig in zip(self.sigs, self.orig_handlers):
+                signal.signal(sig, orig)
+        self.orig_handlers = None
