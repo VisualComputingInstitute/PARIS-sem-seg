@@ -28,7 +28,7 @@ First downscale the images for realistic training. Be aware this will be resizin
 
 Example call:
 ```
-python resize_cityscapes_train.py --downscale_factor 2 \
+python resize_cityscapes.py --downscale_factor 2 \
         --cityscapes_root /work/hermans/cityscapes \
         --target_root /work/hermans/cityscapes/down2
 ```
