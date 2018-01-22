@@ -5,7 +5,6 @@ import signal
 
 import cv2
 import numpy as np
-import tensorflow as tf
 
 def check_directory(arg, access=os.W_OK, access_str="writeable"):
     """ Check for directory-type argument validity.
@@ -198,18 +197,6 @@ def load_dataset(csv_file, dataset_root):
                           '\n'.join(missing)))
 
     return image_files, label_files
-
-
-def string_tuple_to_image_pair(image_file, label_file, label_offset):
-    image_encoded = tf.read_file(image_file)
-    image_decoded = tf.to_float(tf.image.decode_png(image_encoded, channels=3))
-
-    labels_encoded = tf.read_file(label_file)
-    labels_decoded = tf.cast(
-        tf.image.decode_png(labels_encoded, channels=1), tf.int32)
-    labels_decoded = labels_decoded - label_offset
-
-    return image_decoded, labels_decoded
 
 
 def get_logging_dict(name):

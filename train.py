@@ -15,6 +15,7 @@ from tensorflow.contrib import slim
 
 import output_losses
 from networks import NETWORK_CHOICES
+import tf_utils
 import utils
 
 
@@ -166,7 +167,7 @@ def main():
 
     # Convert filenames to actual image and label id tensors.
     dataset = dataset.map(
-        lambda x,y: utils.string_tuple_to_image_pair(x, y, args.label_offset),
+        lambda x,y: tf_utils.string_tuple_to_image_pair(x, y, args.label_offset),
         num_parallel_calls=args.loading_threads)
 
 
