@@ -116,7 +116,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
 
     Args:
         label: A 2D Numpy array containing labels.
-        new_size: The target size, specified as `(Width, Height)` TODO: check!
+        new_size: The target size, specified as `(Width, Height)`
         valid_threshold: The fraction of the dominant label within a group,
             needed to be set. If it falls below this fraction, the `void_label`
             is set instead.
@@ -141,7 +141,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     for i, l in enumerate(possible_labels):
         label_vol[:,:, i] = (labels == l)
 
-    label_vol = cv2.resize(label_vol, new_size)
+    label_vol = cv2.resize(label_vol, new_size, interpolation=cv2.INTER_AREA)
 
     # If there is only a single label, then the resize function returns a 2D
     # tensor.
