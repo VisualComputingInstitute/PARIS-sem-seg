@@ -38,34 +38,36 @@ parser.add_argument(
 def main():
     args = parser.parse_args()
 
-    # Resize the color images.
+    # Get filenames
     image_filenames = glob.glob(
         os.path.join(args.cityscapes_root, 'leftImg8bit') + '/*/*/*.png')
 
-    for filename in tqdm(image_filenames, desc='Resizing images'):
-        image = cv2.imread(filename)
+    label_filenames = glob.glob(
+        os.path.join(args.cityscapes_root, 'gt') + '*/*/*/*labelIds.png')
+
+    for image_filename, label_filename in tqdm(
+            zip(image_filenames, label_filenames),
+            desc='Resizing', smoothing=0.01, total=len(image_filenames)):
+        # Resize the color image.
+        image = cv2.imread(image_filename)
         h, w, _ = image.shape
         h = h // args.downscale_factor
         w = w // args.downscale_factor
         image = cv2.resize(image, (w, h))
-        target = filename.replace(args.cityscapes_root, args.target_root)
+        target = image_filename.replace(args.cityscapes_root, args.target_root)
         target_path = os.path.dirname(target)
         if not os.path.exists(target_path):
             os.makedirs(target_path)
         cv2.imwrite(target, image)
 
-    # Resize the label_images.
-    label_filenames = glob.glob(
-        os.path.join(args.cityscapes_root, 'gt') + '*/*/*/*labelIds.png')
-
-    for filename in tqdm(label_filenames, desc='Resizing labels'):
-        labels = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+        # Resize the label image.
+        labels = cv2.imread(label_filename, cv2.IMREAD_GRAYSCALE)
         h, w = labels.shape
         h = h // args.downscale_factor
         w = w // args.downscale_factor
         labels = utils.soft_resize_labels(
             labels, (w, h), args.label_threshold, void_label=0)
-        target = filename.replace(args.cityscapes_root, args.target_root)
+        target = label_filename.replace(args.cityscapes_root, args.target_root)
         target_path = os.path.dirname(target)
         if not os.path.exists(target_path):
             os.makedirs(target_path)
