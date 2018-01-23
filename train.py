@@ -26,12 +26,16 @@ parser.add_argument(
     help='Location used to store checkpoints and dumped data.')
 
 parser.add_argument(
-    '--train_set',
+    '--train_set', required=True, type=str,
     help='Path to the train_set csv file.')
 
 parser.add_argument(
-    '--dataset_root', type=utils.readable_directory,
+    '--dataset_root', required=True, type=utils.readable_directory,
     help='Path that will be pre-pended to the filenames in the train_set csv.')
+
+parser.add_argument(
+    '--dataset_config', required=True, type=str,
+    help='Path to the json file containing the dataset config.')
 
 parser.add_argument(
     '--resume', action='store_true', default=False,
@@ -44,7 +48,6 @@ parser.add_argument(
     help='After how many iterations a checkpoint is stored. Set this to 0 to '
          'disable intermediate storing. This will result in only one final '
          'checkpoint.')
-
 
 parser.add_argument(
     '--learning_rate', default=1e-3, type=utils.positive_float,
@@ -72,19 +75,23 @@ parser.add_argument(
     help='Type of the model to use.')
 
 parser.add_argument(
-    '--label_offset', default=1, type=utils.positive_int,
-    help='Offset used for the input labels. By default labels are shifted by 1 '
-         'so that the void label becomes -1.')
-
-parser.add_argument(
     '--loss_type', default='cross_entropy_loss', choices=output_losses.LOSS_CHOICES,
     help='Loss used to train the network.')
 
 parser.add_argument(
-    '--class_count', required=True, type=utils.positive_int,
-    help='Number of classes predicted by the final output layer.')
+    '--flip_augment', action='store_true', default=False,
+    help='TODO(pandoro)')
+
+parser.add_argument(
+    '--gamma_augment', action='store_true', default=False,
+    help='TODO(pandoro)')
+
+parser.add_argument(
+    '--crop_augment', default=0, type=utils.nonnegative_int,
+    help='TODO(pandoro)')
 
 # TODO(pandoro): loss parameters
+
 
 def main():
     args = parser.parse_args()
@@ -142,15 +149,11 @@ def main():
     for key, value in sorted(vars(args).items()):
         log.info('{}: {}'.format(key, value))
 
-    # Check them here, so they are not required when --resume-ing.
-    if not args.train_set:
-        parser.print_help()
-        log.error('You did not specify the `train_set` argument!')
-        sys.exit(1)
-    if not args.dataset_root:
-        parser.print_help()
-        log.error('You did not specify the required `dataset_root` argument!')
-        sys.exit(1)
+    # Load the config for the dataset.
+    with open(args.dataset_config, 'r') as f:
+        dataset_config = json.load(f)
+    log.info('Training based on a `{}` configuration.'.format(
+        dataset_config['dataset_name']))
 
     # Load the data from the CSV file.
     image_files, label_files = utils.load_dataset(
@@ -167,9 +170,21 @@ def main():
 
     # Convert filenames to actual image and label id tensors.
     dataset = dataset.map(
-        lambda x,y: tf_utils.string_tuple_to_image_pair(x, y, args.label_offset),
+        lambda x,y: tf_utils.string_tuple_to_image_pair(
+            x, y, dataset_config.get('original_to_train_mapping', None)),
         num_parallel_calls=args.loading_threads)
 
+    # Possible augmentations
+    if args.flip_augment:
+        dataset = dataset.map(tf_utils.flip_augment)
+    if args.gamma_augment:
+        dataset = dataset.map(tf_utils.gamma_augment)
+    if args.crop_augment > 0:
+        dataset = dataset.map(
+            lambda x, y: tf_utils.crop_augment(x, y, args.crop_augment))
+
+    # Re scale the input images
+    dataset = dataset.map(lambda x, y: ((x - 128.0) / 128.0, y))
 
     # Group it into batches.
     dataset = dataset.batch(args.batch_size)
@@ -185,13 +200,16 @@ def main():
     # Feed the image through a model.
     with tf.name_scope('model'):
         net = model.network(image_batch, is_training=True)
-        logits = slim.conv2d(net, args.class_count, [3,3], scope='output_conv',
+        logits = slim.conv2d(net, len(dataset_config['class_names']),
+            [3,3], scope='output_conv', activation_fn=None,
             weights_initializer=slim.variance_scaling_initializer(),
-            biases_initializer=tf.zeros_initializer(), activation_fn=None)
+            biases_initializer=tf.zeros_initializer())
 
     # Create the loss, for now we use a simple cross entropy loss.
     with tf.name_scope('loss'):
-        losses = getattr(output_losses, args.loss_type)(logits, label_batch)
+        loss_function = getattr(output_losses, args.loss_type)
+        losses = loss_function(
+            logits, label_batch, void=dataset_config['void_label'])
 
     # Count the total batch loss.
     loss_mean = tf.reduce_mean(losses)
@@ -280,4 +298,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
