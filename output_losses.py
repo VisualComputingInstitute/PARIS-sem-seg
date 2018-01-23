@@ -16,12 +16,14 @@ def cross_entropy_loss(logits, target, void=-1):
 
 
 def bootstrapped_cross_entropy_loss(logits, target, bootstrap_factor=4, void=-1):
+    # TODO(pandoro): add reference
     top_count = tf.cast(tf.size(target) / bootstrap_factor, tf.int32)
     losses = cross_entropy_loss(logits, target, void)
     losses, _ = tf.nn.top_k(losses, k=top_count, sorted=False)
     return losses
 
 def focal_loss(logits, target, correction_alpha=1, gamma=2, void=-1):
+    # TODO(pandoro): add reference
     losses = cross_entropy_loss(logits, target, void)
     target_probabilities = tf.exp(-losses)
     weight = correction_alpha * tf.pow(1.0 - target_probabilities, gamma)
