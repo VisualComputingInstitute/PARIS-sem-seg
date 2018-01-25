@@ -159,7 +159,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     return max_idx.astype(labels.dtype)
 
 
-def load_dataset(csv_file, dataset_root):
+def load_dataset(csv_file, dataset_root, label_root=None):
     '''Loads a dataset by reading image, label filenames tuples from a file.
 
     Args:
@@ -167,6 +167,10 @@ def load_dataset(csv_file, dataset_root):
             line should contain an image and a label filename tuple.
         dataset_root: A string with the dataset root directory. This is
             prepended to each filename and it is verified all files exist.
+        label_root: An optional string with the dataset root directory in case
+            the labels are stored in a different location. This is used when
+            predictions are made at a lower resolution, but the evaluation
+            should be performed with the original resolution.
 
     Returns:
         A tuple of string lists containing image filenames and label filenames.
@@ -180,9 +184,12 @@ def load_dataset(csv_file, dataset_root):
     label_files = []
     missing = []
 
+    if label_root is None:
+        label_root = dataset_root
+
     for image, labels in dataset:
         image_files.append(os.path.join(dataset_root, image.strip()))
-        label_files.append(os.path.join(dataset_root, labels.strip()))
+        label_files.append(os.path.join(label_root, labels.strip()))
 
         if not os.path.isfile(image_files[-1]):
             missing.append(image_files[-1])
