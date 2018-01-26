@@ -75,6 +75,11 @@ parser.add_argument(
     help='Type of the model to use.')
 
 parser.add_argument(
+    '--model_params', default=None, type=str,
+    help='Comma separated list of model parameters and values. Valid '
+         'parameters differ from model to model.')
+
+parser.add_argument(
     '--loss_type', default='cross_entropy_loss', choices=output_losses.LOSS_CHOICES,
     help='Loss used to train the network.')
 
@@ -134,6 +139,18 @@ def main():
                 exit(1)
         else:
             os.makedirs(args.experiment_root)
+
+        # Parse the model parameters. This could be a bit cleaner in the future,
+        # but it will do for now.
+        if args.model_params is not None:
+            model_params = args.model_params.split(',')
+            if len(model_params) % 2 != 0:
+                raise ValueError('`model_params` has to be a comma separated '
+                                 'list of even length.')
+            it = iter(model_params)
+            args.model_params = {p: float(v) for p, v in zip(it,it)}
+        else:
+            args.model_params = {}
 
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
@@ -199,7 +216,7 @@ def main():
 
     # Feed the image through a model.
     with tf.name_scope('model'):
-        net = model.network(image_batch, is_training=True)
+        net = model.network(image_batch, is_training=True, **args.model_params)
         logits = slim.conv2d(net, len(dataset_config['class_names']),
             [3,3], scope='output_conv', activation_fn=None,
             weights_initializer=slim.variance_scaling_initializer(),

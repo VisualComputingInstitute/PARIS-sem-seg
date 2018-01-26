@@ -117,7 +117,7 @@ def main():
     # Setup the network.
     model = import_module('networks.' + args.model_type)
     with tf.name_scope('model'):
-        net = model.network(image_batch, is_training=False)
+        net = model.network(image_batch, is_training=False, **args.model_params)
         logits = slim.conv2d(net, len(dataset_config['class_names']),
             [3,3], scope='output_conv', activation_fn=None,
             weights_initializer=slim.variance_scaling_initializer(),
