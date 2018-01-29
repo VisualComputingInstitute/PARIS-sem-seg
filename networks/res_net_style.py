@@ -113,7 +113,7 @@ def network(input, is_training, base_channel_count=48):
 
             # Unpool, crop and concatenate the skip connection
             net = tf.image.resize_nearest_neighbor(net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
-            net = net[:, :, :skip3.shape[1], :skip3.shape[2]]
+            net = net[:, :skip3.shape[1], :skip3.shape[2], :]
             net = tf.concat([net, skip3], axis=-1)
 
             # 2 ResBlocks, store the output for the skip connection
@@ -122,7 +122,7 @@ def network(input, is_training, base_channel_count=48):
 
             # Unpool, crop and concatenate the skip connection
             net = tf.image.resize_nearest_neighbor(net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
-            net = net[:, :, :skip2.shape[1], :skip2.shape[2]]
+            net = net[:, :skip2.shape[1], :skip2.shape[2], :]
             net = tf.concat([net, skip2], axis=-1)
 
             # 2 ResBlocks, store the output for the skip connection
@@ -131,7 +131,7 @@ def network(input, is_training, base_channel_count=48):
 
             # Unpool, crop and concatenate the skip connection
             net = tf.image.resize_nearest_neighbor(net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
-            net = net[:, :, :skip1.shape[1], :skip1.shape[2]]
+            net = net[:, :skip1.shape[1], :skip1.shape[2], :]
             net = tf.concat([net, skip1], axis=-1)
 
             # 2 ResBlocks, store the output for the skip connection
@@ -140,7 +140,7 @@ def network(input, is_training, base_channel_count=48):
 
             # Unpool, crop and concatenate the skip connection
             net = tf.image.resize_nearest_neighbor(net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
-            net = net[:, :, :skip0.shape[1], :skip0.shape[2]]
+            net = net[:, :skip0.shape[1], :skip0.shape[2], :]
             net = tf.concat([net, skip0], axis=-1)
 
             # 2 ResBlocks, store the output for the skip connection
