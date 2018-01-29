@@ -63,6 +63,10 @@ parser.add_argument(
          'Set to -1 to disable decay completely.')
 
 parser.add_argument(
+    '--decay_multiplier', default=0.001, type=float,
+    help='How much the exponential decay, should reduce the learning rate.')
+
+parser.add_argument(
     '--batch_size', default=5, type=utils.positive_int,
     help='The batch size used during training.')
 
@@ -242,7 +246,8 @@ def main():
         learning_rate = tf.train.exponential_decay(
             args.learning_rate,
             tf.maximum(0, global_step - args.decay_start_iteration),
-            args.train_iterations - args.decay_start_iteration, 0.001)
+            args.train_iterations - args.decay_start_iteration,
+            args.decay_multiplier)
     else:
         learning_rate = args.learning_rate
     tf.summary.scalar('learning_rate', learning_rate)
