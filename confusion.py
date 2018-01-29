@@ -1,5 +1,8 @@
 import numpy as np
 
+# This code comes from my personal toolbox. Mainly written by me, partially
+# optimized by Lucas Beyer.
+
 class Confusion(object):
     '''Confusion matrix class including incremental confusion computation.
 

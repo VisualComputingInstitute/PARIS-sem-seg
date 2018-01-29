@@ -89,15 +89,17 @@ parser.add_argument(
 
 parser.add_argument(
     '--flip_augment', action='store_true', default=False,
-    help='TODO(pandoro)')
+    help='When provided, random flip augmentation is used during training.')
 
 parser.add_argument(
     '--gamma_augment', action='store_true', default=False,
-    help='TODO(pandoro)')
+    help='When provided, random gamma augmentation is used during training.')
 
 parser.add_argument(
     '--crop_augment', default=0, type=utils.nonnegative_int,
-    help='TODO(pandoro)')
+    help='When not 0, a randomly located crop is taken from the input images, '
+         'so that the removed border has the width and height as specified by '
+         'this value.')
 
 # TODO(pandoro): loss parameters
 
