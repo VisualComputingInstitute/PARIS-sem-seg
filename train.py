@@ -63,7 +63,7 @@ parser.add_argument(
          'Set to -1 to disable decay completely.')
 
 parser.add_argument(
-    '--decay_multiplier', default=0.001, type=float,
+    '--decay_multiplier', default=1e-3, type=float,
     help='How much the exponential decay, should reduce the learning rate.')
 
 parser.add_argument(
