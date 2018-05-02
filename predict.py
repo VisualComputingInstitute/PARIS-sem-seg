@@ -116,7 +116,10 @@ def main():
         # Determine the checkpoint location.
         checkpoint_loader = tf.train.Saver()
         if args.checkpoint_iteration == -1:
-             checkpoint = tf.train.latest_checkpoint(args.experiment_root)
+            # The default TF way to do this fails when moving folders.
+            checkpoint = os.path.join(
+                args.experiment_root,
+                'checkpoint-{}'.format(args.train_iterations))
         else:
             checkpoint = os.path.join(
                 args.experiment_root,
