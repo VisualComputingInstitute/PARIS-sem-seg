@@ -1,6 +1,8 @@
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 
+import tf_utils
+
 # ResNet baseline from the FRRN paper with some modifications by Jakob Bauer
 
 
@@ -11,7 +13,8 @@ import tensorflow.contrib.slim as slim
 # global network parameter.
 
 
-def res_block_v2(input, out_channel_count, conv_op, scope, channel_multiplier=1, bottleneck=False):
+def res_block_v2(input, out_channel_count, conv_op, norm_op, scope,
+                 channel_multiplier=1, bottleneck=False):
     '''ResNet v2 block
 
     Args:
@@ -30,25 +33,25 @@ def res_block_v2(input, out_channel_count, conv_op, scope, channel_multiplier=1,
             skip = input
 
         if not bottleneck:
-            net = slim.batch_norm(input)
+            net = norm_op(input)
             net = tf.nn.relu(net)
             net = conv_op(net, out_channel_count, [3,3], scope='res_conv1')
 
-            net = slim.batch_norm(net)
+            net = norm_op(net)
             net = tf.nn.relu(net)
             net = conv_op(net, out_channel_count, [3,3], scope='res_conv2')
         else:
-            net = slim.batch_norm(input)
+            net = norm_op(input)
             net = tf.nn.relu(net)
             net = conv_op(
                 net, out_channel_count / 4, [1,1], scope='res_conv1')
 
-            net = slim.batch_norm(net)
+            net = norm_op(net)
             net = tf.nn.relu(net)
             net = conv_op(
                 net, out_channel_count / 4, [3,3], scope='res_conv2')
 
-            net = slim.batch_norm(net)
+            net = norm_op(net)
             net = tf.nn.relu(net)
             net = conv_op(net, out_channel_count, [1,1], scope='res_conv3')
         net = net + skip
@@ -57,7 +60,7 @@ def res_block_v2(input, out_channel_count, conv_op, scope, channel_multiplier=1,
 
 
 def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
-            separable_conv=False):
+            separable_conv=False, gn_groups=None, gn_channels=None):
     '''ResNet v2 style semantic segmentation network with long range skips.
 
     Args:
@@ -73,13 +76,21 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
         'normalizer_fn': None
     }
 
-    batch_norm_params = {
-        'center': True,
-        'scale': True,
-        'decay': 0.9,
-        'epsilon': 1e-5,
-        'is_training': is_training
-    }
+    if gn_groups is not None or gn_channels is not None:
+        normalziation_params = {
+            'group_count': gn_groups,
+            'channel_count': gn_channels
+        }
+        norm_op = tf_utils.group_normalization
+    else:
+        normalziation_params = {
+            'center': True,
+            'scale': True,
+            'decay': 0.9,
+            'epsilon': 1e-5,
+            'is_training': is_training
+        }
+        norm_op = slim.batch_norm
 
     if separable_conv:
         separable_conv2d_params = dict(conv2d_params)
@@ -91,18 +102,20 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
     with slim.arg_scope([slim.conv2d], **conv2d_params):
         with slim.arg_scope([slim.separable_conv2d], **separable_conv2d_params):
-            with slim.arg_scope([slim.batch_norm], **batch_norm_params):
+            with slim.arg_scope([norm_op], **normalziation_params):
                 # First convolution to increase the channel count.
                 net = slim.conv2d(input, base_channel_count, [3, 3],
-                    scope='input_conv')
+                                  scope='input_conv')
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=1,
-                    scope='resblock_v2_1', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=1, scope='resblock_v2_1',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=1,
-                    scope='resblock_v2_2', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=1, scope='resblock_v2_2',
+                    bottleneck=bottleneck_blocks)
                 skip0 = net
 
                 # Pooling -> 1/2 res
@@ -110,14 +123,17 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 3 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=2,
-                    scope='resblock_v2_3', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=2, scope='resblock_v2_3',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=2,
-                    scope='resblock_v2_4', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=2, scope='resblock_v2_4',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=2,
-                    scope='resblock_v2_5', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=2, scope='resblock_v2_5',
+                    bottleneck=bottleneck_blocks)
                 skip1 = net
 
                 # Pooling -> 1/4 res
@@ -125,17 +141,21 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 4 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_6', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_6',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_7', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_7',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_8', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_8',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_9', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_9',
+                    bottleneck=bottleneck_blocks)
                 skip2 = net
 
                 # Pooling -> 1/8 res
@@ -143,11 +163,13 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=8,
-                    scope='resblock_v2_10', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=8, scope='resblock_v2_10',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=8,
-                    scope='resblock_v2_11', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=8, scope='resblock_v2_11',
+                    bottleneck=bottleneck_blocks)
                 skip3 = net
 
                 # Pooling -> 1/16 res
@@ -155,11 +177,13 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 2 ResBlocks
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=8,
-                    scope='resblock_v2_12', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=8, scope='resblock_v2_12',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=8,
-                    scope='resblock_v2_13', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=8, scope='resblock_v2_13',
+                    bottleneck=bottleneck_blocks)
 
                 # Unpool, crop and concatenate the skip connection
                 net = tf.image.resize_nearest_neighbor(
@@ -169,11 +193,13 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_14', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_14',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_15', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_15',
+                    bottleneck=bottleneck_blocks)
 
                 # Unpool, crop and concatenate the skip connection
                 net = tf.image.resize_nearest_neighbor(
@@ -183,11 +209,13 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_16', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_16',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=4,
-                    scope='resblock_v2_17', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=4, scope='resblock_v2_17',
+                    bottleneck=bottleneck_blocks)
 
                 # Unpool, crop and concatenate the skip connection
                 net = tf.image.resize_nearest_neighbor(
@@ -197,11 +225,13 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=2,
-                    scope='resblock_v2_18', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=2, scope='resblock_v2_18',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=2,
-                    scope='resblock_v2_19', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=2, scope='resblock_v2_19',
+                    bottleneck=bottleneck_blocks)
 
                 # Unpool, crop and concatenate the skip connection
                 net = tf.image.resize_nearest_neighbor(
@@ -211,11 +241,13 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=1,
-                    scope='resblock_v2_20', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=1, scope='resblock_v2_20',
+                    bottleneck=bottleneck_blocks)
                 net = res_block_v2(
-                    net, base_channel_count, conv_op, channel_multiplier=1,
-                    scope='resblock_v2_21', bottleneck=bottleneck_blocks)
+                    net, base_channel_count, conv_op, norm_op,
+                    channel_multiplier=1, scope='resblock_v2_21',
+                    bottleneck=bottleneck_blocks)
 
                 # Final batchnorm and relu before the prediction.
                 net = slim.batch_norm(net)
