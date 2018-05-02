@@ -154,7 +154,7 @@ def main():
                 raise ValueError('`model_params` has to be a comma separated '
                                  'list of even length.')
             it = iter(model_params)
-            args.model_params = {p: float(v) for p, v in zip(it,it)}
+            args.model_params = {p: int(v) for p, v in zip(it,it)}
         else:
             args.model_params = {}
 
