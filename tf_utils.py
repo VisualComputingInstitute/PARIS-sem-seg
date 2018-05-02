@@ -43,15 +43,23 @@ def crop_augment(image, labels, pixel_to_remove):
     if not isinstance(pixel_to_remove, tuple):
         pixel_to_remove = (pixel_to_remove, pixel_to_remove)
 
-    # Remove the pixel in height and width.
+    # Compute the corners.
     begin_h = tf.random_uniform(shape=[], minval=0, maxval=pixel_to_remove[0], dtype=tf.int32)
     begin_w = tf.random_uniform(shape=[], minval=0, maxval=pixel_to_remove[1], dtype=tf.int32)
-
     end_h = tf.shape(image)[0] - pixel_to_remove[0] + begin_h
     end_w = tf.shape(image)[1] - pixel_to_remove[1] + begin_w
 
-    return (image[begin_h:end_h, begin_w:end_w],
-        labels[begin_h:end_h, begin_w:end_w])
+    # Compute the new width.
+    h = image.get_shape()[0] - pixel_to_remove[0]
+    w = image.get_shape()[1] - pixel_to_remove[1]
+
+    # Actually cut out the crop and fix the shapes.
+    image = image[begin_h:end_h, begin_w:end_w]
+    image.set_shape([h, w, 3])
+    labels = labels[begin_h:end_h, begin_w:end_w]
+    labels.set_shape([h, w, 1])
+
+    return image, labels
 
 
 @add_arg_scope
