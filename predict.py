@@ -130,6 +130,7 @@ def main():
 
         # Loop over all images
         timings = []
+        print()
         while True:
             try:
                 start = time.time()
@@ -138,7 +139,11 @@ def main():
                 timings.append(time.time() - start)
                 pred_class = np.argmax(preds[0], -1)
                 pred_out = id_to_rgb[pred_class]
-
+                if len(timings) > 1:
+                    print('Time for loading, resizing and forwarding per frame:'
+                          ' {:7.4f}s±{:7.4f}s'.format(
+                                np.mean(timings[1:]), np.std(timings[1:])),
+                          end='\r')
                 in_filename = fn[0].decode("utf-8")
                 base_dir = os.path.dirname(in_filename)
                 out_filename = in_filename.replace(
@@ -150,7 +155,7 @@ def main():
                 cv2.imwrite(out_filename, pred_out)
 
             except tf.errors.OutOfRangeError:
-                print()  # Done!
+                # Done!
                 break
 
     # For the timings we skip the first frame since this is where Tensorflow
