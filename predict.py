@@ -87,8 +87,16 @@ def main():
 
     image_input, image_filename = dataset.make_one_shot_iterator().get_next()
 
-    image_input_resized = tf.image.resize_images(
-        image_input, (args.rescale_h, args.rescale_w))
+    if args.rescale_h is not None or args.rescale_w is not None:
+        if args.rescale_h is not None and args.rescale_w is not None:
+            image_input_resized = tf.image.resize_images(
+                image_input, (args.rescale_h, args.rescale_w))
+        else:
+            raise ValueError('Either both rescale_h and rescale_w should be '
+                             'left undefined or both should be set. Got {} and '
+                             '{}'.format(args.rescale_h, args.rescale_w))
+    else:
+        image_input_resized = image_input
 
     # Setup the network for simple forward passing.
     model = import_module('networks.' + args.model_type)
