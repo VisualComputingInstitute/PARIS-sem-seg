@@ -95,19 +95,37 @@ def group_normalization(input, group_count=None, channel_count=None,
             channels = channel_count
 
     with tf.variable_scope(scope, 'group_normalization'):
+        # This implements Group Normalization as introduced in:
+        #   "Group Normalization", Yuxin Wu, Kaiming He
+        #   https://arxiv.org/abs/1803.08494.
         # For reshaping we need the dynamic shapes. This is an important detail
         # done wrong in the original code snippet and the two implementations I
         # found in GitHub. When using the static shape the dimensions need to be
         # fully specified which doesn't make any sense for dynamic image and/or
         # batch sizes.
+        # This also seems to be the case for the TF implementation found in
+        # tf contrib.
+        # However, this implementation also seems to seriously benefit from
+        # having a fixed input and batch size at which point it is approximately
+        # as fast as the TF contrib implementation. However, in turn this can
+        # be used without fixed input sizes during deployment.
+        # In any case they are both seriously slow compared to vanilla batch
+        # normalization, easily increasing training time by a factor of two :(ZZ
+
         N = tf.shape(input)[0]
         H = tf.shape(input)[1]
         W = tf.shape(input)[2]
         grouped = tf.reshape(input, [N, H, W, channels, groups])
 
-        # Compute the group statistics and use them to normalize.
+        # Compute the group statistics.
         mean, var = tf.nn.moments(grouped, [1, 2, 3], keep_dims=True)
-        grouped = (grouped - mean) / tf.sqrt(var + epsilon)
+
+        # Reshape them so that they can first me multiplied together
+        # with gamma and beta, before applying them to the input.
+        mean = tf.tile(mean, [1, 1, 1, 1, channels])
+        mean = tf.squeeze(mean, -2)
+        var = tf.tile(var, [1, 1, 1, 1, channels])
+        var = tf.squeeze(var, -2)
 
         # Setup the scale and offset parameters
         gamma = tf.get_variable(
@@ -115,7 +133,8 @@ def group_normalization(input, group_count=None, channel_count=None,
         beta = tf.get_variable(
             'beta', [1, 1, 1, C], initializer=tf.constant_initializer(0.0))
 
-        # Ungroup the channels
-        ungrouped = tf.reshape(grouped, tf.shape(input))
+        inv_std = tf.rsqrt(var + epsilon)
+        gamma = gamma * inv_std
+        beta = beta - mean * gamma
 
-        return ungrouped * gamma + beta
+        return input * gamma + beta
