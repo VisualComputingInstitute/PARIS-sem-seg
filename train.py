@@ -26,15 +26,15 @@ parser.add_argument(
     help='Location used to store checkpoints and dumped data.')
 
 parser.add_argument(
-    '--train_set', required=True, type=str,
+    '--train_set', type=str,
     help='Path to the train_set csv file.')
 
 parser.add_argument(
-    '--dataset_root', required=True, type=utils.readable_directory,
+    '--dataset_root', type=utils.readable_directory,
     help='Path that will be pre-pended to the filenames in the train_set csv.')
 
 parser.add_argument(
-    '--dataset_config', required=True, type=str,
+    '--dataset_config', type=str,
     help='Path to the json file containing the dataset config.')
 
 parser.add_argument(
@@ -136,6 +136,21 @@ def main():
                       ' `{}`. Using the new value: `{}`.'.format(key, value))
 
     else:
+        # Make sure the required arguments are provided:
+        # train_set, dataset_root, dataset_config
+        if not args.train_set:
+            parser.print_help()
+            print('You did not specify the `train_set` argument!')
+            exit(1)
+        if not args.dataset_root:
+            parser.print_help()
+            print('You did not specify the required `dataset_root` argument!')
+            exit(1)
+        if not args.dataset_config:
+            parser.print_help()
+            print('You did not specify the required `dataset_config` argument!')
+            exit(1)
+
         # If the experiment directory exists already, we bail in fear.
         if os.path.exists(args.experiment_root):
             if os.listdir(args.experiment_root):
