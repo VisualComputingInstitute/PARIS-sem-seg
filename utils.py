@@ -140,7 +140,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     for i, l in enumerate(possible_labels):
         label_vol[:,:, i] = (labels == l)
 
-    label_vol = cv2.resize(label_vol, new_size, interpolation=cv2.INTER_AREA)
+    label_vol = cv2.resize(label_vol, new_size, interpolation=cv2.INTER_LINEAR)
 
     # If there is only a single label, then the resize function returns a 2D
     # tensor.
