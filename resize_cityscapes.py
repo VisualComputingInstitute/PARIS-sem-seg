@@ -35,6 +35,10 @@ parser.add_argument(
     help='The threshold applied to the dominant label to decide which ambiguous'
          ' cases are mapped to the void label.')
 
+parser.add_argument(
+    '--store_jpeg', action='store_true', default=False,
+    help='TODO.')
+
 def main():
     args = parser.parse_args()
 
@@ -55,10 +59,15 @@ def main():
         w = w // args.downscale_factor
         image = cv2.resize(image, (w, h))
         target = image_filename.replace(args.cityscapes_root, args.target_root)
+        if args.store_jpeg:
+            target = target.replace('.png', '.jpg')
         target_path = os.path.dirname(target)
         if not os.path.exists(target_path):
             os.makedirs(target_path)
-        cv2.imwrite(target, image)
+        if args.store_jpeg:
+            cv2.imwrite(target, image, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+        else:
+            cv2.imwrite(target, image)
 
         # Resize the label image.
         labels = cv2.imread(label_filename, cv2.IMREAD_GRAYSCALE)
