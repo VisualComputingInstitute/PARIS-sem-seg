@@ -10,7 +10,7 @@ try:
     from tqdm import tqdm
 except ImportError:
     # In case tqdm isn't installed we don't use a progressbar.
-    tqdm = lambda x: x
+    tqdm = lambda x, desc, smoothing, total: x
     print('Tqdm not found, not showing progress.')
 
 import utils
@@ -39,11 +39,11 @@ def main():
     args = parser.parse_args()
 
     # Get filenames
-    image_filenames = glob.glob(
-        os.path.join(args.cityscapes_root, 'leftImg8bit') + '/*/*/*.png')
+    image_filenames = sorted(glob.glob(
+        os.path.join(args.cityscapes_root, 'leftImg8bit') + '/*/*/*.png'))
 
-    label_filenames = glob.glob(
-        os.path.join(args.cityscapes_root, 'gt') + '*/*/*/*labelIds.png')
+    label_filenames = sorted(glob.glob(
+        os.path.join(args.cityscapes_root, 'gt') + '*/*/*/*labelIds.png'))
 
     for image_filename, label_filename in tqdm(
             zip(image_filenames, label_filenames),
