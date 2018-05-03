@@ -39,25 +39,48 @@ def gamma_augment(image, labels, gamma_range=0.1):
     return image, labels
 
 
-def crop_augment(image, labels, pixel_to_remove):
-    if not isinstance(pixel_to_remove, tuple):
-        pixel_to_remove = (pixel_to_remove, pixel_to_remove)
-
+# TODO(pandoro): change the underlying workings of the crop augment functions
+# they also need to support crops that are bigger than the image. Right now
+# this will likely just completely break.
+def crop_augment(image, labels, pixel_to_remove_h, pixel_to_remove_w):
     # Compute the corners.
-    begin_h = tf.random_uniform(shape=[], minval=0, maxval=pixel_to_remove[0], dtype=tf.int32)
-    begin_w = tf.random_uniform(shape=[], minval=0, maxval=pixel_to_remove[1], dtype=tf.int32)
-    end_h = tf.shape(image)[0] - pixel_to_remove[0] + begin_h
-    end_w = tf.shape(image)[1] - pixel_to_remove[1] + begin_w
+    begin_h = tf.random_uniform(
+        shape=[], minval=0, maxval=pixel_to_remove_h, dtype=tf.int32)
+    begin_w = tf.random_uniform(
+        shape=[], minval=0, maxval=pixel_to_remove_w, dtype=tf.int32)
+    end_h = tf.shape(image)[0] - pixel_to_remove_h + begin_h
+    end_w = tf.shape(image)[1] - pixel_to_remove_w + begin_w
 
-    # Compute the new width.
-    h = image.get_shape()[0] - pixel_to_remove[0]
-    w = image.get_shape()[1] - pixel_to_remove[1]
+    # Compute the new width if statically defined.
+    if image.shape.is_fully_defined():
+        print(image.shape)
+        h = image.shape[0] - pixel_to_remove_h
+        w = image.shape[1] - pixel_to_remove_w
+    else:
+        h = None
+        w = None
 
     # Actually cut out the crop and fix the shapes.
     image = image[begin_h:end_h, begin_w:end_w]
-    image.set_shape([h, w, 3])
     labels = labels[begin_h:end_h, begin_w:end_w]
-    labels.set_shape([h, w, 1])
+
+    # We can't set a static width/height here.
+    if h is not None:
+        image.set_shape([h, w, 3])
+        labels.set_shape([h, w, 1])
+
+    return image, labels
+
+
+def fixed_crop_augment(image, labels, crop_size_h, crop_size_w):
+    # Simply compute the border that can be removed given the image and the
+    # fixed crop and then reuse the crop_augment function.
+    remove_h = tf.shape(image)[0] - crop_size_h
+    remove_w = tf.shape(image)[1] - crop_size_w
+
+    image, labels = crop_augment(image, labels, remove_h, remove_w)
+    image.set_shape([crop_size_h, crop_size_w, 3])
+    labels.set_shape([crop_size_h, crop_size_w, 1])
 
     return image, labels
 

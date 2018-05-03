@@ -99,7 +99,23 @@ parser.add_argument(
     '--crop_augment', default=0, type=utils.nonnegative_int,
     help='When not 0, a randomly located crop is taken from the input images, '
          'so that the removed border has the width and height as specified by '
-         'this value.')
+         'this value. This clashes with `fixed_crop_augment_width` and '
+         '`fixed_crop_augment_height`.')
+
+parser.add_argument(
+    '--fixed_crop_augment_height', default=0, type=utils.nonnegative_int,
+    help='Perform a crop augmentation where a crop of fixed height and width is'
+         ' taken from the input images with the provided height. If this is used'
+         ' fixed_crop_augment_height also needs to be specified. This clashes '
+         'with `crop_augment`.')
+
+parser.add_argument(
+    '--fixed_crop_augment_width', default=0, type=utils.nonnegative_int,
+    help='Perform a crop augmentation where a crop of fixed height and width is'
+         ' taken from the input images with the provided width. If this is used'
+         ' fixed_crop_augment_height also needs to be specified. This clashes '
+         'with `crop_augment`.')
+
 
 # TODO(pandoro): loss parameters
 
@@ -173,6 +189,22 @@ def main():
         else:
             args.model_params = {}
 
+        # Check some parameter clashes.
+        if args.crop_augment > 0 and (args.fixed_crop_augment_width > 0 or
+                args.fixed_crop_augment_height > 0):
+            print('You cannot specified the use of both types of crop '
+                  'augmentations. Either use the `crop_augment` argument to '
+                  'remove a fixed amount of pixel from the borders, or use the '
+                  '`fixed_crop_augment_height` arguments to provide a fixed '
+                  'size window that will be cropped from the input images.')
+            exit(1)
+        if ((args.fixed_crop_augment_height > 0) !=
+                (args.fixed_crop_augment_width > 0)):
+            print('You need to specify both the `fixed_crop_augment_width` and '
+                  '`fixed_crop_augment_height` arguments for a valid '
+                  'augmentation.')
+            exit(1)
+
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
         with open(args_file, 'w') as f:
@@ -219,7 +251,13 @@ def main():
         dataset = dataset.map(tf_utils.gamma_augment)
     if args.crop_augment > 0:
         dataset = dataset.map(
-            lambda x, y: tf_utils.crop_augment(x, y, args.crop_augment))
+            lambda x, y: tf_utils.crop_augment(
+                x, y, args.crop_augment, args.crop_augment))
+    if args.fixed_crop_augment_width > 0 and args.fixed_crop_augment_height > 0:
+        dataset = dataset.map(
+            lambda x, y: tf_utils.fixed_crop_augment(
+                x, y, args.fixed_crop_augment_height,
+                args.fixed_crop_augment_width))
 
     # Re scale the input images
     dataset = dataset.map(lambda x, y: ((x - 128.0) / 128.0, y))
