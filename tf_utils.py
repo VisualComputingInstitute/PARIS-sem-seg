@@ -143,12 +143,17 @@ def group_normalization(input, group_count=None, channel_count=None,
         # Compute the group statistics.
         mean, var = tf.nn.moments(grouped, [1, 2, 3], keep_dims=True)
 
-        # Reshape them so that they can first me multiplied together
-        # with gamma and beta, before applying them to the input.
-        mean = tf.tile(mean, [1, 1, 1, 1, channels])
-        mean = tf.squeeze(mean, -2)
-        var = tf.tile(var, [1, 1, 1, 1, channels])
-        var = tf.squeeze(var, -2)
+        # Reshape them so that they can first me multiplied together  with gamma
+        # and beta, before applying them to the input. This involves recreating
+        # np.repeat which TF misses for some reason. In the last reshape op we
+        # directly include squeezing out the surplus dimension created from
+        # grouping.
+        mean = tf.expand_dims(mean, -1)
+        mean = tf.tile(mean, [1, 1, 1, 1, 1, channels])
+        mean = tf.reshape(mean, [N, 1, 1, channels * groups])
+        var = tf.expand_dims(var, -1)
+        var = tf.tile(var, [1, 1, 1, 1, 1, channels])
+        var = tf.reshape(var, [N, 1, 1, channels * groups])
 
         # Setup the scale and offset parameters
         gamma = tf.get_variable(
