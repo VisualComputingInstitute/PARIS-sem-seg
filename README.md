@@ -54,6 +54,11 @@ python predict.py --experiment_root /root/to/store/experiment_data \
         --rescale_h 256
 ```
 
+## Software requirements
+This code was tested with both TensorFlow 1.4 and 1.8. The latter, using up to date CUDA and cudnn versions runs significantly faster (about 1.4 on a Titan X Pascal). It was only tested with Python 3.5/3.6. Some of the code defenitely doesn't work like expected with Python 2.7. Other packages aren't critical as long as they are up-to-date enough to run with the used TensorFlow version.
+
+## ROS nodes
+There is a very thin wrapper around a trained frozen network. Please check the corresponding [README](https://github.com/VisualComputingInstitute/PARIS-sem-seg/blob/master/ros_nodes/ROS_NODES_README.md). This of course runs on Python 2.7, but there are no guarantees for the rest of the code.
 
 ## Design space
 A list of things to try eventually to see how the performance and speed changes.
