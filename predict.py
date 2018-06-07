@@ -166,15 +166,15 @@ def main():
         while True:
             try:
                 start = time.time()
-                preds, fn = sess.run(
-                    [predictions_full, image_filename])
+                preds, fn = sess.run([predictions_full, image_filename])
                 timings.append(time.time() - start)
                 pred_class = np.argmax(preds[0], -1)
                 pred_out = id_to_rgb[pred_class]
                 if len(timings) > 1:
                     print('Time for loading, resizing and forwarding per frame:'
                           ' {:7.4f}s±{:7.4f}s'.format(
-                                np.mean(timings[1:]), np.std(timings[1:])),
+                                np.mean(timings[-100:]),
+                                np.std(timings[-100:])),
                           end='\r')
                 in_filename = fn[0].decode("utf-8")
                 base_dir = os.path.dirname(in_filename)
@@ -193,7 +193,7 @@ def main():
     # For the timings we skip the first frame since this is where Tensorflow
     # hides the compilation time.
     if len(timings) > 1:
-        timings = timings[1:]
+        timings = timings[-100:]
         print('Time for loading, resizing and forwarding per frame: '
               '{:7.4f}s±{:7.4f}s'.format(np.mean(timings), np.std(timings)))
     else:
