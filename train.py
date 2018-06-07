@@ -54,7 +54,7 @@ parser.add_argument(
          'is loaded.')
 
 parser.add_argument(
-    '--checkpoint_frequency', default=2000, type=utils.nonnegative_int,
+    '--checkpoint_frequency', default=5000, type=utils.nonnegative_int,
     help='After how many iterations a checkpoint is stored. Set this to 0 to '
          'disable intermediate storing. This will result in only one final '
          'checkpoint.')
