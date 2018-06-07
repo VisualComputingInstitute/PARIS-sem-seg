@@ -117,7 +117,7 @@ parser.add_argument(
     '--fixed_crop_augment_height', default=0, type=utils.nonnegative_int,
     help='Perform a crop augmentation where a crop of fixed height and width '
          'is taken from the input images with the provided height. If this is '
-         'used fixed_crop_augment_height also needs to be specified. This '
+         'used fixed_crop_augment_width also needs to be specified. This '
          'clashes with `crop_augment`.')
 
 parser.add_argument(
