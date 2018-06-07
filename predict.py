@@ -23,6 +23,11 @@ parser.add_argument(
     help='Location used to load checkpoints and store images.')
 
 parser.add_argument(
+    '--dataset_config', type=str, default=None,
+    help='Path to the json file containing the dataset config. When left blank,'
+         'the first dataset used during training is used.')
+
+parser.add_argument(
     '--image_glob', required=True, type=str,
     help='Pattern used to match the images for which the predictions should be '
          'made. For example `/root/folder/frames*.jpg`.')
@@ -63,6 +68,11 @@ def main():
         if key not in args.__dict__:
             args.__dict__[key] = value
 
+    # In case no dataset config was specified, we need to fix the argument here
+    # since there will be a list of configs.
+    if args.dataset_config is None:
+        args.dataset_config = args_resumed['dataset_config'][0]
+
     # Load the config for the dataset.
     with open(args.dataset_config, 'r') as f:
         dataset_config = json.load(f)
@@ -98,13 +108,47 @@ def main():
     else:
         image_input_resized = image_input
 
+    # Determine the checkpoint location.
+    if args.checkpoint_iteration == -1:
+        # The default TF way to do this fails when moving folders.
+        checkpoint = os.path.join(
+            args.experiment_root,
+            'checkpoint-{}'.format(args.train_iterations))
+    else:
+        checkpoint = os.path.join(
+            args.experiment_root,
+            'checkpoint-{}'.format(args.checkpoint_iteration))
+    iteration = int(checkpoint.split('-')[-1])
+    print('Restoring from checkpoint: {}'.format(checkpoint))
+
+    # Check if the checkpoint contains a specifically named output_conv. This is
+    # needed for models trained with the older single dataset code.
+    reader = tf.train.NewCheckpointReader(checkpoint)
+    var_to_shape_map = reader.get_variable_to_shape_map()
+    output_conv_name = 'output_conv_{}'.format(
+        dataset_config.get('dataset_name'))
+    output_conv_name_found = False
+
+    for k in var_to_shape_map.keys():
+        output_conv_name_found = output_conv_name in k
+        if output_conv_name_found:
+            break
+
+    if not output_conv_name_found:
+        print('Warning: An output for the specific dataset could not be found '
+              'in the checkpoint. This likely means it\'s an old checkpoint. '
+              'Revertig to the old default output name. This could cause '
+              'issues if the dataset class count and output classes of the '
+              'network do not match.')
+        output_conv_name = 'output_conv'
+
     # Setup the network for simple forward passing.
     model = import_module('networks.' + args.model_type)
     with tf.name_scope('model'):
         net = model.network(image_input_resized, is_training=False,
             **args.model_params)
         logits = slim.conv2d(net, len(dataset_config['class_names']),
-            [3,3], scope='output_conv', activation_fn=None,
+            [3,3], scope=output_conv_name, activation_fn=None,
             weights_initializer=slim.variance_scaling_initializer(),
             biases_initializer=tf.zeros_initializer())
         predictions = tf.nn.softmax(logits)
@@ -113,19 +157,7 @@ def main():
             predictions, tf.shape(image_input)[1:3])
 
     with tf.Session() as sess:
-        # Determine the checkpoint location.
         checkpoint_loader = tf.train.Saver()
-        if args.checkpoint_iteration == -1:
-            # The default TF way to do this fails when moving folders.
-            checkpoint = os.path.join(
-                args.experiment_root,
-                'checkpoint-{}'.format(args.train_iterations))
-        else:
-            checkpoint = os.path.join(
-                args.experiment_root,
-                'checkpoint-{}'.format(args.checkpoint_iteration))
-        iteration = int(checkpoint.split('-')[-1])
-        print('Restoring from checkpoint: {}'.format(checkpoint))
         checkpoint_loader.restore(sess, checkpoint)
 
         # Loop over all images

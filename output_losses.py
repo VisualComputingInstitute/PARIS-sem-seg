@@ -22,6 +22,9 @@ def bootstrapped_cross_entropy_loss(logits, target, bootstrap_factor=4, void=-1)
     #   arXiv:1605.06885
     top_count = tf.cast(tf.size(target) / bootstrap_factor, tf.int32)
     losses = cross_entropy_loss(logits, target, void)
+    # Sometimes after filtering voids, the top count might be higher than the
+    # valid number of pixels. We need to fix that here.
+    top_count = tf.minimum(top_count, tf.size(losses))
     losses, _ = tf.nn.top_k(losses, k=top_count, sorted=False)
     return losses
 

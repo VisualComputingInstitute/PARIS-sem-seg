@@ -189,30 +189,81 @@ def load_dataset(csv_file, dataset_root, label_root=None):
     """
     dataset = np.genfromtxt(csv_file, delimiter=',', dtype='|U')
 
-    image_files = []
-    label_files = []
+    file_tuples = []
     missing = []
 
     if label_root is None:
         label_root = dataset_root
 
     for image, labels in dataset:
-        image_files.append(os.path.join(dataset_root, image.strip()))
-        label_files.append(os.path.join(label_root, labels.strip()))
+        image_file = os.path.join(dataset_root, image.strip())
+        if not os.path.isfile(image_file):
+            missing.append(image_file)
 
-        if not os.path.isfile(image_files[-1]):
-            missing.append(image_files[-1])
+        label_file = os.path.join(label_root, labels.strip())
+        if not os.path.isfile(label_file):
+            missing.append(label_file)
 
-        if not os.path.isfile(label_files[-1]):
-            missing.append(label_files[-1])
+        file_tuples.append((image_file, label_file))
 
     if len(missing) > 1:
         raise IOError('Using the `{}` file and `{}` as a dataset root '
                       '{} files are missing:\n{}'.format(
-                          csv_file, dataset_root, len(missing),
-                          '\n'.join(missing)))
+            csv_file, dataset_root, len(missing),
+            '\n'.join(missing)))
 
-    return image_files, label_files
+    return file_tuples
+
+
+def mixed_dataset_generator(datasets, weights):
+    """ Given a list of datasets, this function yields weighted samples forever.
+
+    Args:
+        datasets: A list of datasets, these can be single objects or tuples.
+        weights: The weights for the datasets which will be used for sampling
+            data points from each dataset.
+
+    Yields:
+        A tuple containing dataset samples and dataset ids representing the
+        index of the dataset in the datasets list.
+
+    Raises:
+        ValueError if the number of datasets and weights do not match.
+    """
+
+    if len(datasets) != len(weights):
+        raise ValueError(
+            'The length of the datasets needs to correspond to the length of '
+            'the weights, got {} and {}'.format(len(datasets), len(weights)))
+    datasets = [np.array(d) for d in datasets]
+    weights = np.array(weights) / np.sum(weights)
+    dataset_ids = np.arange(len(datasets))
+    index = np.zeros(len(datasets), dtype=np.uint32)
+
+    def _shuffle_datasets(dataset_index):
+        p = np.random.permutation(len(datasets[dataset_index]))
+        datasets[dataset_index] = datasets[dataset_index][p]
+
+    for i in range(len(datasets)):
+        _shuffle_datasets(i)
+
+    while True:
+        # Sample which dataset to yield from.
+        dataset_id = np.random.choice(size=1, a=dataset_ids, p=weights)[0]
+
+        # Get the data.
+        data = datasets[dataset_id][index[dataset_id]]
+
+        # Move the index
+        index[dataset_id] += 1
+
+        # Possibly reshuffle
+        if index[dataset_id] == len(datasets[dataset_id]):
+            index[dataset_id] = 0
+            _shuffle_datasets(dataset_id)
+
+        # Add an index to the data and yield
+        yield (tuple(list(data) + [dataset_id]))
 
 
 def get_logging_dict(name):

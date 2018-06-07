@@ -3,7 +3,7 @@ from tensorflow.contrib import slim
 from tensorflow.contrib.framework.python.ops import add_arg_scope
 
 
-def string_tuple_to_image_pair(image_file, label_file, label_mapping=None):
+def string_tuple_to_image_pair(image_file, label_file, label_mapping):
     image_encoded = tf.read_file(image_file)
     image_decoded = tf.to_float(tf.image.decode_png(image_encoded, channels=3))
 
@@ -11,9 +11,7 @@ def string_tuple_to_image_pair(image_file, label_file, label_mapping=None):
     labels_decoded = tf.cast(
         tf.image.decode_png(labels_encoded, channels=1), tf.int32)
 
-    if label_mapping is not None:
-        label_mapping = tf.constant(label_mapping, dtype=tf.int32)
-        labels_decoded = tf.gather(label_mapping, labels_decoded)
+    labels_decoded = tf.gather(label_mapping, labels_decoded)
 
     return image_decoded, labels_decoded
 
@@ -118,6 +116,7 @@ def group_normalization(input, group_count=None, channel_count=None,
             channels = channel_count
 
     with tf.variable_scope(scope, 'group_normalization'):
+        #return tf.contrib.layers.group_norm(input, groups=groups)
         # This implements Group Normalization as introduced in:
         #   "Group Normalization", Yuxin Wu, Kaiming He
         #   https://arxiv.org/abs/1803.08494.

@@ -39,7 +39,8 @@ python train.py --experiment_root /root/to/store/experiment_data \
         --dataset_config datasets/cityscapes.json \
         --flip_augment \
         --gamma_augment \
-        --crop_augment 64 \
+        --fixed_crop_augment_height 192 \
+        --fixed_crop_augment_width 448 \
         --loss_type bootstrapped_cross_entropy_loss \
 ```
 This should give about ~70% mean IoU on the validation set.
@@ -80,6 +81,35 @@ There is a very thin wrapper around a trained frozen network. Please check the c
 In order to run the semantic segmentation ros node a frozen graph is needed. To do some initial debugging, here are two frozen graphs that could be used. While both models are fully convolutional, the scale at which objects appear in the images should reoughly correspond to the scale the network was trained on.
 * [Full model](https://rwth-aachen.sciebo.de/s/1BJk7Ek5XrA5vvI) This is a default model as used in most experiments and it was trained on the Mapillary Dataset, where all images were rescaled to a width of 512 pixels. This model runs at around 1.4 fps on a Jetson TX2 using 256x512 inputs.
 * [Reduced model](https://rwth-aachen.sciebo.de/s/UIvpPJtcGOszjOd) This model is trained on quater resolution CityScapes images and uses a reduced base channel count (8 instead of 48), hence its performance is significantly degraded. However, this model runs at almost 11 fps on a Jetson TX2 using 256x512 inputs.
+
+## Multi Dataset Training
+Training on multiple datasets is now supported. This means you can simply add a
+list of arguments which specify the dataset and train jointly on them.
+Every dataset gets a separate logit output and a loss is computed only for the
+dataset specific logit. For example:
+```
+python train.py --experiment_root /root/to/store/experiment_data \
+        --train_set datasets/cityscape_fine/train.csv datasets/mapillary/train.csv\
+        --dataset_root /root/to/downsampled_cs/data /root/to/downsampled_mpl/data\
+        --dataset_config datasets/cityscapes.json datasets/mapillary.json \
+        --flip_augment \
+        --gamma_augment \
+        --fixed_crop_augment_height 192 \
+        --fixed_crop_augment_width 448 \
+        --loss_type bootstrapped_cross_entropy_loss \
+```
+In order to make these changes the old crop augmentation is now removed and
+replaced by a new one that takes fixed size crops from the image. This was
+needed for mapillary training already. Additionally, the old logs now no longer
+really work for resuming or evaluation.
+
+## Migrating old experiments
+When trying to use newer versions of the code with older experiments (e.g. for
+timing or evaluation) this will not always work. For a limited support one thing
+to try is to migrate the `args.json` with the `migrate_args.py` script. This
+will fix some of the issues, but it is not guaranteed to work. Especially the
+checkpoints are not affected by this migration which would need to be the case
+for flawless support.
 
 ## Design space
 A list of things to try eventually to see how the performance and speed changes.
