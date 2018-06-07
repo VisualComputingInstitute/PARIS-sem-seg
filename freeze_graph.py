@@ -4,15 +4,11 @@ import glob
 from importlib import import_module
 import json
 import os
-import sys
-import time
 
-import cv2
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
 
-import tf_utils
 import utils
 
 

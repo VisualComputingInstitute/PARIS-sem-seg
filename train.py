@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser
-from datetime import timedelta
 from importlib import import_module
+import json
 import logging.config
 import os
 from signal import SIGINT, SIGTERM
-import sys
 import time
 
-import json
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
@@ -84,7 +82,8 @@ parser.add_argument(
          'parameters differ from model to model.')
 
 parser.add_argument(
-    '--loss_type', default='cross_entropy_loss', choices=output_losses.LOSS_CHOICES,
+    '--loss_type', default='cross_entropy_loss',
+    choices=output_losses.LOSS_CHOICES,
     help='Loss used to train the network.')
 
 parser.add_argument(
@@ -104,17 +103,17 @@ parser.add_argument(
 
 parser.add_argument(
     '--fixed_crop_augment_height', default=0, type=utils.nonnegative_int,
-    help='Perform a crop augmentation where a crop of fixed height and width is'
-         ' taken from the input images with the provided height. If this is used'
-         ' fixed_crop_augment_height also needs to be specified. This clashes '
-         'with `crop_augment`.')
+    help='Perform a crop augmentation where a crop of fixed height and width '
+         'is taken from the input images with the provided height. If this is '
+         'used fixed_crop_augment_height also needs to be specified. This '
+         'clashes with `crop_augment`.')
 
 parser.add_argument(
     '--fixed_crop_augment_width', default=0, type=utils.nonnegative_int,
-    help='Perform a crop augmentation where a crop of fixed height and width is'
-         ' taken from the input images with the provided width. If this is used'
-         ' fixed_crop_augment_height also needs to be specified. This clashes '
-         'with `crop_augment`.')
+    help='Perform a crop augmentation where a crop of fixed height and width '
+         'is taken from the input images with the provided width. If this is '
+         'used fixed_crop_augment_height also needs to be specified. This '
+         'clashes with `crop_augment`.')
 
 
 # TODO(pandoro): loss parameters
@@ -125,7 +124,7 @@ def main():
 
     # We store all arguments in a json file. This has two advantages:
     # 1. We can always get back and see what exactly that experiment was
-    # 2. We can resume an experiment as-is without needing to remember all flags.
+    # 2. We can resume an experiment as-is without needing to remember flags.
     args_file = os.path.join(args.experiment_root, 'args.json')
     if args.resume:
         if not os.path.isfile(args_file):
@@ -208,7 +207,8 @@ def main():
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
         with open(args_file, 'w') as f:
-            json.dump(vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
+            json.dump(
+                vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
 
     log_file = os.path.join(args.experiment_root, 'train')
     logging.config.dictConfig(utils.get_logging_dict(log_file))
@@ -326,7 +326,7 @@ def main():
             sess.run(tf.global_variables_initializer())
 
             # We also store this initialization as a checkpoint, such that we
-            # could run exactly reproduceable experiments.
+            # could run exactly reproducible experiments.
             checkpoint_saver.save(sess, os.path.join(
                 args.experiment_root, 'checkpoint'), global_step=0)
 
@@ -351,7 +351,8 @@ def main():
                 # Compute the iteration speed and add it to the summary.
                 # We did observe some weird spikes that we couldn't track down.
                 summary2 = tf.Summary()
-                summary2.value.add(tag='secs_per_iter', simple_value=elapsed_time)
+                summary2.value.add(
+                    tag='secs_per_iter', simple_value=elapsed_time)
                 summary_writer.add_summary(summary2, step)
                 summary_writer.add_summary(summary, step)
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser
+import glob
 from importlib import import_module
+import json
 import os
 import sys
 import time
 
 import cv2
-import glob
-import json
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim

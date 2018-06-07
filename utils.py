@@ -1,10 +1,10 @@
 from argparse import ArgumentTypeError
-import logging
 import os
 import signal
 
 import cv2
 import numpy as np
+
 
 def check_directory(arg, access=os.W_OK, access_str="writeable"):
     """ Check for directory-type argument validity.
@@ -75,19 +75,25 @@ def number_between_x(arg, type_, low=None, high=None, inclusive_low=False,
             return value
         else:
             raise ArgumentTypeError('Found {} where an {} with {} <= value <= '
-                '{} was required'.format(arg, type_.__name__, low, high))
+                                    '{} was required'.format(arg,
+                                                             type_.__name__,
+                                                             low, high))
     elif low is not None and high is None:
         if l_(value, low):
             return value
         else:
             raise ArgumentTypeError('Found {} where an {} with value >= {}'
-                '{} was required'.format(arg, type_.__name__, low))
+                                    '{} was required'.format(arg,
+                                                             type_.__name__,
+                                                             low))
     elif low is None and high is not None:
         if g_(value, high):
             return value
         else:
             raise ArgumentTypeError('Found {} where an {} with value <= '
-                '{} was required'.format(arg, type_.__name__, high))
+                                    '{} was required'.format(arg,
+                                                             type_.__name__,
+                                                             high))
     else:
         return value
 
@@ -95,11 +101,14 @@ def number_between_x(arg, type_, low=None, high=None, inclusive_low=False,
 def positive_int(arg):
     return number_between_x(arg, int, 0, None)
 
+
 def positive_float(arg):
     return number_between_x(arg, float, 0, None)
 
+
 def nonnegative_int(arg):
     return number_between_x(arg, int, -1, None)
+
 
 def zero_one_float(arg):
     return number_between_x(arg, float, 0, 1, True, True)
@@ -132,13 +141,13 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     possible_labels = np.asarray(list(possible_labels))
 
     if len(possible_labels) == 0:
-        #This image is empty. We can simply return an image full of void labels.
+        # This image is empty. We can simply return an image full of void labels.
         return np.full(new_size[::-1], void_label, dtype=labels.dtype)
 
     label_vol = np.zeros(
         (labels.shape[0], labels.shape[1], len(possible_labels)))
     for i, l in enumerate(possible_labels):
-        label_vol[:,:, i] = (labels == l)
+        label_vol[:, :, i] = (labels == l)
 
     label_vol = cv2.resize(label_vol, new_size, interpolation=cv2.INTER_LINEAR)
 
@@ -149,7 +158,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
 
     # Find the max label using this mapping and the actual label value
     max_idx = np.argmax(label_vol, 2)
-    max_val = np.max(label_vol,2)
+    max_val = np.max(label_vol, 2)
 
     # Remap to original values
     max_idx = possible_labels[max_idx]
@@ -160,7 +169,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
 
 
 def load_dataset(csv_file, dataset_root, label_root=None):
-    '''Loads a dataset by reading image, label filenames tuples from a file.
+    """Loads a dataset by reading image, label filenames tuples from a file.
 
     Args:
         csv_file: A string containing the path to the dataset csv file. Each
@@ -173,11 +182,11 @@ def load_dataset(csv_file, dataset_root, label_root=None):
             should be performed with the original resolution.
 
     Returns:
-        A tuple of string lists containing image filenames and label filenames.
+        A list of string tuples containing image filenames and label filenames.
 
     Raises:
         IOError if any one file is missing.
-    '''
+    """
     dataset = np.genfromtxt(csv_file, delimiter=',', dtype='|U')
 
     image_files = []
@@ -245,6 +254,7 @@ def get_logging_dict(name):
         }
     }
 
+
 # This class comes from Lucas Beyer's toolbox which can be found at https://github.com/lucasb-eyer/lbtoolbox.
 # It is based on an original idea from https://gist.github.com/nonZero/2907502 and heavily modified.
 class Uninterrupt(object):
@@ -254,6 +264,7 @@ class Uninterrupt(object):
         while not u.interrupted:
             # train
     """
+
     def __init__(self, sigs=(signal.SIGINT,), verbose=False):
         self.sigs = sigs
         self.verbose = verbose

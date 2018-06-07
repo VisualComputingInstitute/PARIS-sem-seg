@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
+import json
+import os
 from argparse import ArgumentParser
 from importlib import import_module
 from itertools import count
-import os
-import sys
 
 import cv2
-import json
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
@@ -14,7 +13,6 @@ from tensorflow.contrib import slim
 import confusion
 import tf_utils
 import utils
-
 
 parser = ArgumentParser(description='Evaluate a semantic segmentation network.')
 
@@ -202,12 +200,12 @@ def main():
         result_log = {}
 
     result_log[str(iteration)] = {  # json keys cannot be integers.
-        'confusion matrix' : evaluation.confusion_normalized_row.tolist(),
-        'iou scores' : evaluation.iou_score.tolist(),
-        'class scores' : evaluation.class_score.tolist(),
-        'global score' : evaluation.global_score,
-        'mean iou score' : evaluation.avg_iou_score,
-        'mean class score' : evaluation.avg_score,
+        'confusion matrix': evaluation.confusion_normalized_row.tolist(),
+        'iou scores': evaluation.iou_score.tolist(),
+        'class scores': evaluation.class_score.tolist(),
+        'global score': evaluation.global_score,
+        'mean iou score': evaluation.avg_iou_score,
+        'mean class score': evaluation.avg_score,
     }
     with open(result_file, 'w') as f:
         json.dump(result_log, f, ensure_ascii=False, indent=2, sort_keys=True)
