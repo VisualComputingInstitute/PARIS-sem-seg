@@ -60,6 +60,11 @@ This code was tested with both TensorFlow 1.4 and 1.8. The latter, using up to d
 ## ROS nodes
 There is a very thin wrapper around a trained frozen network. Please check the corresponding [README](https://github.com/VisualComputingInstitute/PARIS-sem-seg/blob/master/ros_nodes/ROS_NODES_README.md). This of course runs on Python 2.7, but there are no guarantees for the rest of the code.
 
+### Pretrained frozen models for the ROS nodes
+In order to run the semantic segmentation ros node a frozen graph is needed. To do some initial debugging, here are two frozen graphs that could be used. While both models are fully convolutional, the scale at which objects appear in the images should reoughly correspond to the scale the network was trained on.
+* [Full model](https://rwth-aachen.sciebo.de/s/1BJk7Ek5XrA5vvI) This is a default model as used in most experiments and it was trained on the Mapillary Dataset, where all images were rescaled to a width of 512 pixels. This model runs at around 1.4 fps on a Jetson TX2 using 256x512 inputs.
+* [Reduced model](https://rwth-aachen.sciebo.de/s/UIvpPJtcGOszjOd) This model is trained on quater resolution CityScapes images and uses a reduced base channel count (8 instead of 48), hence its performance is significantly degraded. However, this model runs at almost 11 fps on a Jetson TX2 using 256x512 inputs.
+
 ## Design space
 A list of things to try eventually to see how the performance and speed changes.
 
