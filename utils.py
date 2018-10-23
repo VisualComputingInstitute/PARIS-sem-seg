@@ -1,5 +1,6 @@
 from argparse import ArgumentTypeError
 import os
+import re
 import signal
 
 import cv2
@@ -168,6 +169,66 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     return max_idx.astype(labels.dtype)
 
 
+def select_existing_root(path, check_only_basedir=False):
+    """Select a path based on multiple options included in square brackets.
+
+    Given a path that needs to be dynamic based on the system, e.g. running on a
+    machine or on a server, the different options can be included in square
+    brackets, which will be expanded into several full paths which are then
+    tested for existence. For example:
+    /root/[location1,location2]/rest_of_path
+    will result in either
+    /root/location1/rest_of_path or /root/location2/rest_of_path
+    depending which is available on the system.
+    If none exists an error is raised, otherwise the first
+    valid path will be returned. If no square brackets are found this is a noop.
+
+    Args:
+        path: A path where multiple options are included in square brackets.
+        check_only_basedir: If this is set to True, only the basedir and the
+            option is checked, but not the parts after the option.
+            This is useful if parts of the path will be created later on.
+
+    Raises:
+        IOError if none of the paths exist.
+        ValueError if more than 1 opening and closing bracket is found or no
+            valid pair of brackets is available.
+
+    Returns:
+        The first valid path in given the options in the path
+    """
+
+    if '[' in path or ']' in path:
+        if path.count('[') == 1 and path.count(']') == 1:
+            matches = re.search('(.*)\[(.*)\](.*)', path)
+            if matches is None:
+                ValueError('No valid opening and closing square bracket '
+                           'configuration could be found in: {}'.format(path))
+            else:
+                opening = matches.group(1)
+                options = matches.group(2).split(',')
+                closing = matches.group(3)
+                for opt in options:
+                    p = opening + opt
+                    if not check_only_basedir:
+                        p += closing
+                    if os.path.exists(p):
+                        if check_only_basedir:
+                            p += closing
+                        return p
+
+                # No valid path was found
+                raise IOError('No valid path was found given the options in '
+                              '{}.'.format(path))
+
+        else:
+            raise ValueError('The path should contain exactly 1 opening and '
+                             'closing square bracket or none at all. This is not'
+                             ' the case for: {}'.format(path))
+    else:
+        return path
+
+
 def load_dataset(csv_file, dataset_root, label_root=None):
     """Loads a dataset by reading image, label filenames tuples from a file.
 
@@ -175,11 +236,15 @@ def load_dataset(csv_file, dataset_root, label_root=None):
         csv_file: A string containing the path to the dataset csv file. Each
             line should contain an image and a label filename tuple.
         dataset_root: A string with the dataset root directory. This is
-            prepended to each filename and it is verified all files exist.
+            perpended to each filename and it is verified all files exist.
+            If the dataset can be located on multiple locations, a part of the
+            path can be encapsulated with square brackets and all options within
+            the brackets are tried, e.g. /[location1,location2]/data/images.
         label_root: An optional string with the dataset root directory in case
             the labels are stored in a different location. This is used when
             predictions are made at a lower resolution, but the evaluation
-            should be performed with the original resolution.
+            should be performed with the original resolution. The same square
+            bracket syntax as for the dataset_root applies.
 
     Returns:
         A list of string tuples containing image filenames and label filenames.
@@ -192,8 +257,12 @@ def load_dataset(csv_file, dataset_root, label_root=None):
     file_tuples = []
     missing = []
 
+    dataset_root = select_existing_root(dataset_root)
+
     if label_root is None:
         label_root = dataset_root
+    else:
+        label_root = select_existing_root(label_root)
 
     for image, labels in dataset:
         image_file = os.path.join(dataset_root, image.strip())

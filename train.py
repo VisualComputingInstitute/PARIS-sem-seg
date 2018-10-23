@@ -21,7 +21,9 @@ import utils
 parser = ArgumentParser(description='Train a Semantic Segmentation network.')
 
 parser.add_argument(
-    '--experiment_root', required=True, type=utils.writeable_directory,
+    '--experiment_root', required=True,
+    type=lambda x: utils.writeable_directory(
+        utils.select_existing_root(x, check_only_basedir=True)),
     help='Location used to store checkpoints and dumped data.')
 
 parser.add_argument(
@@ -31,7 +33,9 @@ parser.add_argument(
          '.')
 
 parser.add_argument(
-    '--dataset_root', type=utils.readable_directory, nargs='+',
+    '--dataset_root',
+    type=lambda x: utils.readable_directory(
+        utils.select_existing_root(x, check_only_basedir=True)), nargs='+',
     help='Path that will be pre-pended to the filenames in the train_set csv. '
          'Can be multiple sets, but in that case the train set, dataset root '
          'and dataset config counts must match.')
@@ -52,6 +56,11 @@ parser.add_argument(
     help='When this flag is provided, all other arguments apart from the '
          'experiment_root are ignored and a previously saved set of arguments '
          'is loaded.')
+
+parser.add_argument(
+    '--auto_resume', action='store_true', default=False,
+    help='When this flag is provided, training with either start or continue, '
+         'regardless of the fact whether an experiment_root already exists.')
 
 parser.add_argument(
     '--checkpoint_frequency', default=5000, type=utils.nonnegative_int,
@@ -137,41 +146,64 @@ def main():
     # We store all arguments in a json file. This has two advantages:
     # 1. We can always get back and see what exactly that experiment was
     # 2. We can resume an experiment as-is without needing to remember flags.
-    args_file = os.path.join(args.experiment_root, 'args.json')
-    if args.resume:
-        if not os.path.isfile(args_file):
+    if args.resume or args.auto_resume:
+        args.experiment_root = utils.select_existing_root(args.experiment_root)
+        args_file = os.path.join(args.experiment_root, 'args.json')
+        if not os.path.isfile(args_file) and not args.auto_resume:
+            # We are not auto_resuming and no existing file was found. This is
+            # an error.
             raise IOError('`args.json` not found in {}'.format(args_file))
+        elif not os.path.isfile(args_file) and args.auto_resume:
+            # No existing args file was found, but we are auto resuming, so we
+            # just start a new run.
+            new_run = True
+        else:
+            # We found an existing args file, this can just be used.
+            new_run = False
+            print('Loading args from {}.'.format(args_file))
+            with open(args_file, 'r') as f:
+                args_resumed = json.load(f)
+            args_resumed['resume'] = True  # This would be overwritten.
 
-        print('Loading args from {}.'.format(args_file))
-        with open(args_file, 'r') as f:
-            args_resumed = json.load(f)
-        args_resumed['resume'] = True  # This would be overwritten.
-
-        # When resuming, we not only want to populate the args object with the
-        # values from the file, but we also want to check for some possible
-        # conflicts between loaded and given arguments.
-        for key, value in args.__dict__.items():
-            if key in args_resumed:
-                resumed_value = args_resumed[key]
-                if resumed_value != value:
-                    print('Warning: For the argument `{}` we are using the'
-                          ' loaded value `{}`. The provided value was `{}`'
-                          '.'.format(key, resumed_value, value))
-                    args.__dict__[key] = resumed_value
-            else:
-                print('Warning: A new argument was added since the last run:'
-                      ' `{}`. Using the new value: `{}`.'.format(key, value))
-
+            # When resuming, we not only want to populate the args object with
+            # the values from the file, but we also want to check for some
+            # possible conflicts between loaded and given arguments.
+            for key, value in args.__dict__.items():
+                if key in args_resumed:
+                    resumed_value = args_resumed[key]
+                    if resumed_value != value:
+                        print('Warning: For the argument `{}` we are using the'
+                              ' loaded value `{}`. The provided value was `{}`'
+                              '.'.format(key, resumed_value, value))
+                        args.__dict__[key] = resumed_value
+                else:
+                    print('Warning: A new argument was added since the last run'
+                          ': `{}`. Using the new value: `{}`.'
+                          ''.format(key, value))
     else:
-        # If the experiment directory exists already, we bail in fear.
-        if os.path.exists(args.experiment_root):
+        # No resuming requested at all.
+        new_run = True
+
+    if new_run:
+        # If the experiment directory exists already and we are not auto
+        # resuming, we bail in fear.
+        args.experiment_root = utils.select_existing_root(
+                args.experiment_root, check_only_basedir=True)
+        if os.path.exists(args.experiment_root) and not args.auto_resume:
             if os.listdir(args.experiment_root):
                 print('The directory {} already exists and is not empty.'
-                      ' If you want to resume training, append --resume to'
-                      ' your call.'.format(args.experiment_root))
+                      ' If you want to resume training, append --resume or '
+                      ' --auto_resume to your call.'
+                      ''.format(args.experiment_root))
                 exit(1)
+        elif os.path.exists(args.experiment_root) and args.auto_resume:
+            # If we are auto resuming, it is okay if the directory exists.
+            pass
         else:
+            # We create a new one if it does not exist.
             os.makedirs(args.experiment_root)
+        args_file = os.path.join(args.experiment_root, 'args.json')
+
 
         # Make sure the required arguments are provided:
         # train_set, dataset_root, dataset_config
@@ -239,6 +271,9 @@ def main():
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
         with open(args_file, 'w') as f:
+            # Make sure not to store the auto_resume forever though.
+            if 'auto_resume' in args.__dict__:
+                del args.__dict__['auto_resume']
             json.dump(
                 vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
 
