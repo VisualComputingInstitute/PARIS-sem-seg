@@ -227,7 +227,8 @@ def main():
     except (FileNotFoundError, json.JSONDecodeError):
         result_log = {}
 
-    result_log[str(iteration)] = {  # json keys cannot be integers.
+    result_log[
+            str(iteration) + '_' + output_conv_name + '_' + args.eval_set] = {
         'confusion matrix': evaluation.confusion_normalized_row.tolist(),
         'iou scores': evaluation.iou_score.tolist(),
         'class scores': evaluation.class_score.tolist(),
