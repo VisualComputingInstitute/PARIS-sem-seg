@@ -33,7 +33,26 @@ parser.add_argument(
     help='Iteration from which the checkpoint will be loaded. Defaults to -1, '
          'which results in the last checkpoint being used.')
 
-# TODO specify fixed input sizes here to possibly create an optimized model.
+parser.add_argument(
+    '--fixed_input_height', default=None, type=utils.nonnegative_int,
+    help='A fixed value for the input height. If specified this will bake it '
+         'into the frozen model, possibly increasing the speed.')
+
+parser.add_argument(
+    '--fixed_input_width', default=None, type=utils.nonnegative_int,
+    help='A fixed value for the input width. If specified this will bake it '
+         'into the frozen model, possibly increasing the speed.')
+
+parser.add_argument(
+    '--fixed_batch_size', default=None, type=utils.nonnegative_int,
+    help='A fixed value for the batch size. If specified this will bake it into'
+         ' the frozen model, possibly increasing the speed.')
+
+# TODO(pandoro) generalize to use all output logits instead of a single one.
+# This will make the freezing less redundant. Simple make a "default" additional
+#  probability and color coding which is a duplicate of one of the dataset, but
+# also support all datasets.
+
 
 def main():
     args = parser.parse_args()
@@ -64,7 +83,10 @@ def main():
 
     # Setup the input
     image_input = tf.placeholder(
-        tf.uint8, shape=(None, None, None, 3), name='input')
+        tf.uint8, shape=(
+            args.fixed_batch_size, args.fixed_input_height,
+            args.fixed_input_width, 3),
+        name='input')
 
     image_input = (tf.to_float(image_input) - 128.0) / 128.0
 
