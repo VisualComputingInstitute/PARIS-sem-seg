@@ -27,7 +27,14 @@ def bootstrapped_cross_entropy_loss(logits, target, bootstrap_factor=4,
     # Sometimes after filtering voids, the top count might be higher than the
     # valid number of pixels. We need to fix that here.
     top_count = tf.minimum(top_count, tf.size(losses))
-    losses, _ = tf.nn.top_k(losses, k=top_count, sorted=False)
+
+    # It is unclear why this happens, but apparently, sometimes the top_count
+    # becomes zero and the gradient computation of top_k fails.
+    losses = tf.cond(
+                tf.equal(0, top_count),
+                lambda: tf.constant([0.0]),
+                lambda: tf.nn.top_k(losses, k=top_count, sorted=False)[0])
+
     return losses
 
 def focal_loss(logits, target, correction_alpha=1, gamma=2, void=-1):
