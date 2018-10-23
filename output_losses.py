@@ -12,10 +12,12 @@ def cross_entropy_loss(logits, target, void=-1):
     mask = tf.not_equal(target_flat, void)
     logits_masked = tf.boolean_mask(logits_flat, mask)
     target_masked = tf.boolean_mask(target_flat, mask)
-    return tf.nn.sparse_softmax_cross_entropy_with_logits(labels=target_masked, logits=logits_masked)
+    return tf.nn.sparse_softmax_cross_entropy_with_logits(
+        labels=target_masked, logits=logits_masked)
 
 
-def bootstrapped_cross_entropy_loss(logits, target, bootstrap_factor=4, void=-1):
+def bootstrapped_cross_entropy_loss(logits, target, bootstrap_factor=4,
+                                    void=-1):
     # As described in:
     #   Bridging Categorylevel and Instance-level Semantic Image Segmentation
     #   Z. Wu, C. Shen, and A. v. d. Hengel.

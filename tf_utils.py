@@ -51,7 +51,6 @@ def crop_augment(image, labels, pixel_to_remove_h, pixel_to_remove_w):
 
     # Compute the new width if statically defined.
     if image.shape.is_fully_defined():
-        print(image.shape)
         h = image.shape[0] - pixel_to_remove_h
         w = image.shape[1] - pixel_to_remove_w
     else:
@@ -132,7 +131,7 @@ def group_normalization(input, group_count=None, channel_count=None,
         # as fast as the TF contrib implementation. However, in turn this can
         # be used without fixed input sizes during deployment.
         # In any case they are both seriously slow compared to vanilla batch
-        # normalization, easily increasing training time by a factor of two :(ZZ
+        # normalization, easily increasing training time by a factor of two :(
 
         N = tf.shape(input)[0]
         H = tf.shape(input)[1]
