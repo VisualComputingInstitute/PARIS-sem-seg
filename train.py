@@ -408,10 +408,10 @@ def main():
             # loss = tf.divide(
             #    loss, tf.log(float(len(dataset_config['class_names']))))
 
-            log_loss = tf.cond(zero_mask, lambda: np.nan, lambda: loss)
+            summary_loss = tf.cond(zero_mask, lambda: np.nan, lambda: loss)
 
             tf.summary.scalar(
-                'loss_{}'.format(dataset_config['dataset_name']), log_loss)
+                'loss_{}'.format(dataset_config['dataset_name']), summary_loss)
             tf.summary.scalar(
                 'weight_{}'.format(dataset_config['dataset_name']), weight)
 
