@@ -29,7 +29,7 @@ colorcoding specific to the dataset the network was trained on. It can be run us
 
 ```
 CUDA_VISIBLE_DEVICES=0 rosrun semantic_segmentation_node segmenter.py \
-        _input_topic:=<topic to subscribe for input images> \
+        _image_topic:=<topic to subscribe for input images> \
         _frozen_model:=<path to frozen graph>
 ```
 
