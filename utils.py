@@ -1,10 +1,11 @@
 from argparse import ArgumentTypeError
-import logging
 import os
+import re
 import signal
 
 import cv2
 import numpy as np
+
 
 def check_directory(arg, access=os.W_OK, access_str="writeable"):
     """ Check for directory-type argument validity.
@@ -75,19 +76,25 @@ def number_between_x(arg, type_, low=None, high=None, inclusive_low=False,
             return value
         else:
             raise ArgumentTypeError('Found {} where an {} with {} <= value <= '
-                '{} was required'.format(arg, type_.__name__, low, high))
+                                    '{} was required'.format(arg,
+                                                             type_.__name__,
+                                                             low, high))
     elif low is not None and high is None:
         if l_(value, low):
             return value
         else:
             raise ArgumentTypeError('Found {} where an {} with value >= {}'
-                '{} was required'.format(arg, type_.__name__, low))
+                                    '{} was required'.format(arg,
+                                                             type_.__name__,
+                                                             low))
     elif low is None and high is not None:
         if g_(value, high):
             return value
         else:
             raise ArgumentTypeError('Found {} where an {} with value <= '
-                '{} was required'.format(arg, type_.__name__, high))
+                                    '{} was required'.format(arg,
+                                                             type_.__name__,
+                                                             high))
     else:
         return value
 
@@ -95,11 +102,14 @@ def number_between_x(arg, type_, low=None, high=None, inclusive_low=False,
 def positive_int(arg):
     return number_between_x(arg, int, 0, None)
 
+
 def positive_float(arg):
     return number_between_x(arg, float, 0, None)
 
+
 def nonnegative_int(arg):
     return number_between_x(arg, int, -1, None)
+
 
 def zero_one_float(arg):
     return number_between_x(arg, float, 0, 1, True, True)
@@ -132,13 +142,13 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     possible_labels = np.asarray(list(possible_labels))
 
     if len(possible_labels) == 0:
-        #This image is empty. We can simply return an image full of void labels.
+        # This image is empty. We can simply return an image full of void labels.
         return np.full(new_size[::-1], void_label, dtype=labels.dtype)
 
     label_vol = np.zeros(
         (labels.shape[0], labels.shape[1], len(possible_labels)))
     for i, l in enumerate(possible_labels):
-        label_vol[:,:, i] = (labels == l)
+        label_vol[:, :, i] = (labels == l)
 
     label_vol = cv2.resize(label_vol, new_size, interpolation=cv2.INTER_LINEAR)
 
@@ -149,7 +159,7 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
 
     # Find the max label using this mapping and the actual label value
     max_idx = np.argmax(label_vol, 2)
-    max_val = np.max(label_vol,2)
+    max_val = np.max(label_vol, 2)
 
     # Remap to original values
     max_idx = possible_labels[max_idx]
@@ -159,51 +169,170 @@ def soft_resize_labels(labels, new_size, valid_threshold, void_label=-1):
     return max_idx.astype(labels.dtype)
 
 
+def select_existing_root(path, check_only_basedir=False):
+    """Select a path based on multiple options included in square brackets.
+
+    Given a path that needs to be dynamic based on the system, e.g. running on a
+    machine or on a server, the different options can be included in square
+    brackets, which will be expanded into several full paths which are then
+    tested for existence. For example:
+    /root/[location1,location2]/rest_of_path
+    will result in either
+    /root/location1/rest_of_path or /root/location2/rest_of_path
+    depending which is available on the system.
+    If none exists an error is raised, otherwise the first
+    valid path will be returned. If no square brackets are found this is a noop.
+
+    Args:
+        path: A path where multiple options are included in square brackets.
+        check_only_basedir: If this is set to True, only the basedir and the
+            option is checked, but not the parts after the option.
+            This is useful if parts of the path will be created later on.
+
+    Raises:
+        IOError if none of the paths exist.
+        ValueError if more than 1 opening and closing bracket is found or no
+            valid pair of brackets is available.
+
+    Returns:
+        The first valid path in given the options in the path
+    """
+
+    if '[' in path or ']' in path:
+        if path.count('[') == 1 and path.count(']') == 1:
+            matches = re.search('(.*)\[(.*)\](.*)', path)
+            if matches is None:
+                ValueError('No valid opening and closing square bracket '
+                           'configuration could be found in: {}'.format(path))
+            else:
+                opening = matches.group(1)
+                options = matches.group(2).split(',')
+                closing = matches.group(3)
+                for opt in options:
+                    p = opening + opt
+                    if not check_only_basedir:
+                        p += closing
+                    if os.path.exists(p):
+                        if check_only_basedir:
+                            p += closing
+                        return p
+
+                # No valid path was found
+                raise IOError('No valid path was found given the options in '
+                              '{}.'.format(path))
+
+        else:
+            raise ValueError('The path should contain exactly 1 opening and '
+                             'closing square bracket or none at all. This is not'
+                             ' the case for: {}'.format(path))
+    else:
+        return path
+
+
 def load_dataset(csv_file, dataset_root, label_root=None):
-    '''Loads a dataset by reading image, label filenames tuples from a file.
+    """Loads a dataset by reading image, label filenames tuples from a file.
 
     Args:
         csv_file: A string containing the path to the dataset csv file. Each
             line should contain an image and a label filename tuple.
         dataset_root: A string with the dataset root directory. This is
-            prepended to each filename and it is verified all files exist.
+            perpended to each filename and it is verified all files exist.
+            If the dataset can be located on multiple locations, a part of the
+            path can be encapsulated with square brackets and all options within
+            the brackets are tried, e.g. /[location1,location2]/data/images.
         label_root: An optional string with the dataset root directory in case
             the labels are stored in a different location. This is used when
             predictions are made at a lower resolution, but the evaluation
-            should be performed with the original resolution.
+            should be performed with the original resolution. The same square
+            bracket syntax as for the dataset_root applies.
 
     Returns:
-        A tuple of string lists containing image filenames and label filenames.
+        A list of string tuples containing image filenames and label filenames.
 
     Raises:
         IOError if any one file is missing.
-    '''
+    """
     dataset = np.genfromtxt(csv_file, delimiter=',', dtype='|U')
 
-    image_files = []
-    label_files = []
+    file_tuples = []
     missing = []
+
+    dataset_root = select_existing_root(dataset_root)
 
     if label_root is None:
         label_root = dataset_root
+    else:
+        label_root = select_existing_root(label_root)
 
     for image, labels in dataset:
-        image_files.append(os.path.join(dataset_root, image.strip()))
-        label_files.append(os.path.join(label_root, labels.strip()))
+        image_file = os.path.join(dataset_root, image.strip())
+        if not os.path.isfile(image_file):
+            missing.append(image_file)
 
-        if not os.path.isfile(image_files[-1]):
-            missing.append(image_files[-1])
+        label_file = os.path.join(label_root, labels.strip())
+        if not os.path.isfile(label_file):
+            missing.append(label_file)
 
-        if not os.path.isfile(label_files[-1]):
-            missing.append(label_files[-1])
+        file_tuples.append((image_file, label_file))
 
     if len(missing) > 1:
         raise IOError('Using the `{}` file and `{}` as a dataset root '
                       '{} files are missing:\n{}'.format(
-                          csv_file, dataset_root, len(missing),
-                          '\n'.join(missing)))
+            csv_file, dataset_root, len(missing),
+            '\n'.join(missing)))
 
-    return image_files, label_files
+    return file_tuples
+
+
+def mixed_dataset_generator(datasets, weights):
+    """ Given a list of datasets, this function yields weighted samples forever.
+
+    Args:
+        datasets: A list of datasets, these can be single objects or tuples.
+        weights: The weights for the datasets which will be used for sampling
+            data points from each dataset.
+
+    Yields:
+        A tuple containing dataset samples and dataset ids representing the
+        index of the dataset in the datasets list.
+
+    Raises:
+        ValueError if the number of datasets and weights do not match.
+    """
+
+    if len(datasets) != len(weights):
+        raise ValueError(
+            'The length of the datasets needs to correspond to the length of '
+            'the weights, got {} and {}'.format(len(datasets), len(weights)))
+    datasets = [np.array(d) for d in datasets]
+    weights = np.array(weights) / np.sum(weights)
+    dataset_ids = np.arange(len(datasets))
+    index = np.zeros(len(datasets), dtype=np.uint32)
+
+    def _shuffle_datasets(dataset_index):
+        p = np.random.permutation(len(datasets[dataset_index]))
+        datasets[dataset_index] = datasets[dataset_index][p]
+
+    for i in range(len(datasets)):
+        _shuffle_datasets(i)
+
+    while True:
+        # Sample which dataset to yield from.
+        dataset_id = np.random.choice(size=1, a=dataset_ids, p=weights)[0]
+
+        # Get the data.
+        data = datasets[dataset_id][index[dataset_id]]
+
+        # Move the index
+        index[dataset_id] += 1
+
+        # Possibly reshuffle
+        if index[dataset_id] == len(datasets[dataset_id]):
+            index[dataset_id] = 0
+            _shuffle_datasets(dataset_id)
+
+        # Add an index to the data and yield
+        yield (tuple(list(data) + [dataset_id]))
 
 
 def get_logging_dict(name):
@@ -245,6 +374,7 @@ def get_logging_dict(name):
         }
     }
 
+
 # This class comes from Lucas Beyer's toolbox which can be found at https://github.com/lucasb-eyer/lbtoolbox.
 # It is based on an original idea from https://gist.github.com/nonZero/2907502 and heavily modified.
 class Uninterrupt(object):
@@ -254,6 +384,7 @@ class Uninterrupt(object):
         while not u.interrupted:
             # train
     """
+
     def __init__(self, sigs=(signal.SIGINT,), verbose=False):
         self.sigs = sigs
         self.verbose = verbose

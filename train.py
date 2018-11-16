@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 from argparse import ArgumentParser
-from datetime import timedelta
 from importlib import import_module
+import functools
+import json
 import logging.config
 import os
 from signal import SIGINT, SIGTERM
-import sys
 import time
 
-import json
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
@@ -22,20 +21,35 @@ import utils
 parser = ArgumentParser(description='Train a Semantic Segmentation network.')
 
 parser.add_argument(
-    '--experiment_root', required=True, type=utils.writeable_directory,
+    '--experiment_root', required=True,
+    type=lambda x: utils.writeable_directory(
+        utils.select_existing_root(x, check_only_basedir=True)),
     help='Location used to store checkpoints and dumped data.')
 
 parser.add_argument(
-    '--train_set', type=str,
-    help='Path to the train_set csv file.')
+    '--train_set', type=str, nargs='+',
+    help='Path to the train_set csv file. Can be multiple sets, but in that '
+         'case the train set, dataset root and dataset config counts must match'
+         '.')
 
 parser.add_argument(
-    '--dataset_root', type=utils.readable_directory,
-    help='Path that will be pre-pended to the filenames in the train_set csv.')
+    '--dataset_root',
+    type=lambda x: utils.readable_directory(
+        utils.select_existing_root(x, check_only_basedir=True)), nargs='+',
+    help='Path that will be pre-pended to the filenames in the train_set csv. '
+         'Can be multiple sets, but in that case the train set, dataset root '
+         'and dataset config counts must match.')
 
 parser.add_argument(
-    '--dataset_config', type=str,
-    help='Path to the json file containing the dataset config.')
+    '--dataset_config', type=str, nargs='+',
+    help='Path to the json file containing the dataset config. Can be multiple '
+         'sets, but in that case the train set, dataset root and dataset config'
+         ' counts must match.')
+
+parser.add_argument(
+    '--dataset_weights', type=float, nargs='+', default=None,
+    help='A relative weight when multiple dataets are used. If not specified '
+         'the weights are computed based on the dataset sizes.')
 
 parser.add_argument(
     '--resume', action='store_true', default=False,
@@ -44,7 +58,12 @@ parser.add_argument(
          'is loaded.')
 
 parser.add_argument(
-    '--checkpoint_frequency', default=2000, type=utils.nonnegative_int,
+    '--auto_resume', action='store_true', default=False,
+    help='When this flag is provided, training with either start or continue, '
+         'regardless of the fact whether an experiment_root already exists.')
+
+parser.add_argument(
+    '--checkpoint_frequency', default=5000, type=utils.nonnegative_int,
     help='After how many iterations a checkpoint is stored. Set this to 0 to '
          'disable intermediate storing. This will result in only one final '
          'checkpoint.')
@@ -84,7 +103,8 @@ parser.add_argument(
          'parameters differ from model to model.')
 
 parser.add_argument(
-    '--loss_type', default='cross_entropy_loss', choices=output_losses.LOSS_CHOICES,
+    '--loss_type', default='cross_entropy_loss',
+    choices=output_losses.LOSS_CHOICES,
     help='Loss used to train the network.')
 
 parser.add_argument(
@@ -104,17 +124,17 @@ parser.add_argument(
 
 parser.add_argument(
     '--fixed_crop_augment_height', default=0, type=utils.nonnegative_int,
-    help='Perform a crop augmentation where a crop of fixed height and width is'
-         ' taken from the input images with the provided height. If this is used'
-         ' fixed_crop_augment_height also needs to be specified. This clashes '
-         'with `crop_augment`.')
+    help='Perform a crop augmentation where a crop of fixed height and width '
+         'is taken from the input images with the provided height. If this is '
+         'used fixed_crop_augment_width also needs to be specified. This '
+         'clashes with `crop_augment`.')
 
 parser.add_argument(
     '--fixed_crop_augment_width', default=0, type=utils.nonnegative_int,
-    help='Perform a crop augmentation where a crop of fixed height and width is'
-         ' taken from the input images with the provided width. If this is used'
-         ' fixed_crop_augment_height also needs to be specified. This clashes '
-         'with `crop_augment`.')
+    help='Perform a crop augmentation where a crop of fixed height and width '
+         'is taken from the input images with the provided width. If this is '
+         'used fixed_crop_augment_height also needs to be specified. This '
+         'clashes with `crop_augment`.')
 
 
 # TODO(pandoro): loss parameters
@@ -125,33 +145,66 @@ def main():
 
     # We store all arguments in a json file. This has two advantages:
     # 1. We can always get back and see what exactly that experiment was
-    # 2. We can resume an experiment as-is without needing to remember all flags.
-    args_file = os.path.join(args.experiment_root, 'args.json')
-    if args.resume:
-        if not os.path.isfile(args_file):
+    # 2. We can resume an experiment as-is without needing to remember flags.
+    if args.resume or args.auto_resume:
+        args.experiment_root = utils.select_existing_root(args.experiment_root)
+        args_file = os.path.join(args.experiment_root, 'args.json')
+        if not os.path.isfile(args_file) and not args.auto_resume:
+            # We are not auto_resuming and no existing file was found. This is
+            # an error.
             raise IOError('`args.json` not found in {}'.format(args_file))
+        elif not os.path.isfile(args_file) and args.auto_resume:
+            # No existing args file was found, but we are auto resuming, so we
+            # just start a new run.
+            new_run = True
+        else:
+            # We found an existing args file, this can just be used.
+            new_run = False
+            print('Loading args from {}.'.format(args_file))
+            with open(args_file, 'r') as f:
+                args_resumed = json.load(f)
+            args_resumed['resume'] = True  # This would be overwritten.
 
-        print('Loading args from {}.'.format(args_file))
-        with open(args_file, 'r') as f:
-            args_resumed = json.load(f)
-        args_resumed['resume'] = True  # This would be overwritten.
-
-        # When resuming, we not only want to populate the args object with the
-        # values from the file, but we also want to check for some possible
-        # conflicts between loaded and given arguments.
-        for key, value in args.__dict__.items():
-            if key in args_resumed:
-                resumed_value = args_resumed[key]
-                if resumed_value != value:
-                    print('Warning: For the argument `{}` we are using the'
-                          ' loaded value `{}`. The provided value was `{}`'
-                          '.'.format(key, resumed_value, value))
-                    args.__dict__[key] = resumed_value
-            else:
-                print('Warning: A new argument was added since the last run:'
-                      ' `{}`. Using the new value: `{}`.'.format(key, value))
-
+            # When resuming, we not only want to populate the args object with
+            # the values from the file, but we also want to check for some
+            # possible conflicts between loaded and given arguments.
+            for key, value in args.__dict__.items():
+                if key in args_resumed:
+                    resumed_value = args_resumed[key]
+                    if resumed_value != value:
+                        print('Warning: For the argument `{}` we are using the'
+                              ' loaded value `{}`. The provided value was `{}`'
+                              '.'.format(key, resumed_value, value))
+                        args.__dict__[key] = resumed_value
+                else:
+                    print('Warning: A new argument was added since the last run'
+                          ': `{}`. Using the new value: `{}`.'
+                          ''.format(key, value))
     else:
+        # No resuming requested at all.
+        new_run = True
+
+    if new_run:
+        # If the experiment directory exists already and we are not auto
+        # resuming, we bail in fear.
+        args.experiment_root = utils.select_existing_root(
+                args.experiment_root, check_only_basedir=True)
+        if os.path.exists(args.experiment_root) and not args.auto_resume:
+            if os.listdir(args.experiment_root):
+                print('The directory {} already exists and is not empty.'
+                      ' If you want to resume training, append --resume or '
+                      ' --auto_resume to your call.'
+                      ''.format(args.experiment_root))
+                exit(1)
+        elif os.path.exists(args.experiment_root) and args.auto_resume:
+            # If we are auto resuming, it is okay if the directory exists.
+            pass
+        else:
+            # We create a new one if it does not exist.
+            os.makedirs(args.experiment_root)
+        args_file = os.path.join(args.experiment_root, 'args.json')
+
+
         # Make sure the required arguments are provided:
         # train_set, dataset_root, dataset_config
         if not args.train_set:
@@ -167,31 +220,41 @@ def main():
             print('You did not specify the required `dataset_config` argument!')
             exit(1)
 
-        # If the experiment directory exists already, we bail in fear.
-        if os.path.exists(args.experiment_root):
-            if os.listdir(args.experiment_root):
-                print('The directory {} already exists and is not empty.'
-                      ' If you want to resume training, append --resume to'
-                      ' your call.'.format(args.experiment_root))
-                exit(1)
+        # Since multiple datasets can be used, we need to check that the
+        # we got lists of the same length
+        train_set_len = len(args.train_set)
+        dataset_root_len = len(args.dataset_config)
+        dataset_config_len = len(args.dataset_config)
+        if args.dataset_weights is not None:
+            dataset_weight_len = len(args.dataset_weights)
         else:
-            os.makedirs(args.experiment_root)
+            # We'll set this manually later so just use a valid length here.
+            dataset_weight_len = dataset_config_len
+
+        if (train_set_len != dataset_root_len or
+                train_set_len != dataset_config_len or
+                train_set_len != dataset_weight_len):
+            parser.print_help()
+            print('The dataset specific argument lengths didn\'t match.')
+            exit(1)
+
 
         # Parse the model parameters. This could be a bit cleaner in the future,
         # but it will do for now.
         if args.model_params is not None:
-            model_params = args.model_params.split(',')
-            if len(model_params) % 2 != 0:
-                raise ValueError('`model_params` has to be a comma separated '
-                                 'list of even length.')
-            it = iter(model_params)
-            args.model_params = {p: int(v) for p, v in zip(it,it)}
+            #model_params = args.model_params.split(';')
+            #if len(model_params) % 2 != 0:
+            #    raise ValueError('`model_params` has to be a comma separated '
+            #                     'list of even length.')
+            #it = iter(model_params)
+            #args.model_params = {p: eval(v) for p, v in zip(it,it)}
+            args.model_params = eval(args.model_params)
         else:
             args.model_params = {}
 
         # Check some parameter clashes.
         if args.crop_augment > 0 and (args.fixed_crop_augment_width > 0 or
-                args.fixed_crop_augment_height > 0):
+                                      args.fixed_crop_augment_height > 0):
             print('You cannot specified the use of both types of crop '
                   'augmentations. Either use the `crop_augment` argument to '
                   'remove a fixed amount of pixel from the borders, or use the '
@@ -208,7 +271,11 @@ def main():
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
         with open(args_file, 'w') as f:
-            json.dump(vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
+            # Make sure not to store the auto_resume forever though.
+            if 'auto_resume' in args.__dict__:
+                del args.__dict__['auto_resume']
+            json.dump(
+                vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
 
     log_file = os.path.join(args.experiment_root, 'train')
     logging.config.dictConfig(utils.get_logging_dict(log_file))
@@ -219,48 +286,74 @@ def main():
     for key, value in sorted(vars(args).items()):
         log.info('{}: {}'.format(key, value))
 
-    # Load the config for the dataset.
-    with open(args.dataset_config, 'r') as f:
-        dataset_config = json.load(f)
-    log.info('Training based on a `{}` configuration.'.format(
-        dataset_config['dataset_name']))
 
-    # Load the data from the CSV file.
-    image_files, label_files = utils.load_dataset(
-        args.train_set, args.dataset_root)
+    # Preload all the filenames and mappings.
+    file_lists = []
+    dataset_configs = []
+    for i, (train_set, dataset_root, config) in enumerate(
+            zip(args.train_set, args.dataset_root, args.dataset_config)):
 
-    # Setup a tf.Dataset where one "epoch" loops over all images.
-    # images are shuffled after every epoch and continue indefinitely.
-    images = tf.data.Dataset.from_tensor_slices(image_files)
-    labels = tf.data.Dataset.from_tensor_slices(label_files)
-    dataset = tf.data.Dataset.zip((images, labels))
-    dataset = dataset.shuffle(len(image_files))
+        # Load the config for the dataset.
+        with open(config, 'r') as f:
+            dataset_configs.append(json.load(f))
+        log.info('Training set {} based on a `{}` configuration.'.format(
+            i, dataset_configs[-1]['dataset_name']))
 
-    dataset = dataset.repeat(None)  # Repeat forever.
+        # Load the data from the CSV file.
+        file_list = utils.load_dataset(train_set, dataset_root)
+        file_lists.append(file_list)
+
+    # if not None set based on size
+    if args.dataset_weights is None:
+        dataset_weights = [len(fl) for fl in file_lists]
+    else:
+        dataset_weights = args.dataset_weights
+
+    # In order to keep the loading of images in tensorflow, we need to make some
+    # quite ugly hacks where we merge all the dataset original to train mappings
+    # into one tensor. Not nice but working.
+    mappings = [d.get('original_to_train_mapping') for d in dataset_configs]
+    mapping = np.zeros(
+        (len(mappings), np.max([len(m) for m in mappings])), dtype=np.int32)
+    for i, m in enumerate(mappings):
+        mapping[i, :len(m)] = m
+    original_to_train_mapping = tf.constant(mapping)
+
+    dataset = tf.data.Dataset.from_generator(
+        generator=functools.partial(
+            utils.mixed_dataset_generator, file_lists, dataset_weights
+        ),
+        output_types=(tf.string, tf.string, tf.int32))
 
     # Convert filenames to actual image and label id tensors.
     dataset = dataset.map(
-        lambda x,y: tf_utils.string_tuple_to_image_pair(
-            x, y, dataset_config.get('original_to_train_mapping', None)),
+        lambda x, y, z: tf_utils.string_tuple_to_image_pair(
+            x, y, tf.gather(original_to_train_mapping, z)) + (z,),
         num_parallel_calls=args.loading_threads)
 
     # Possible augmentations
     if args.flip_augment:
-        dataset = dataset.map(tf_utils.flip_augment)
+        dataset = dataset.map(
+            lambda x, y, z: tf_utils.flip_augment(x, y) + (z,))
     if args.gamma_augment:
-        dataset = dataset.map(tf_utils.gamma_augment)
+        dataset = dataset.map(
+            lambda x, y, z: tf_utils.gamma_augment(x, y) + (z,))
+
+    # TODO deprecate this. It doesn't file with many datasets. This needs to go.
     if args.crop_augment > 0:
         dataset = dataset.map(
-            lambda x, y: tf_utils.crop_augment(
-                x, y, args.crop_augment, args.crop_augment))
+            lambda x, y, z: tf_utils.crop_augment(
+                x, y, args.crop_augment, args.crop_augment) + (z,))
+    # TODO end
+
     if args.fixed_crop_augment_width > 0 and args.fixed_crop_augment_height > 0:
         dataset = dataset.map(
-            lambda x, y: tf_utils.fixed_crop_augment(
+            lambda x, y, z: tf_utils.fixed_crop_augment(
                 x, y, args.fixed_crop_augment_height,
-                args.fixed_crop_augment_width))
+                args.fixed_crop_augment_width) + (z,))
 
     # Re scale the input images
-    dataset = dataset.map(lambda x, y: ((x - 128.0) / 128.0, y))
+    dataset = dataset.map(lambda x, y, z: ((x - 128.0) / 128.0, y, z))
 
     # Group it into batches.
     dataset = dataset.batch(args.batch_size)
@@ -269,29 +362,66 @@ def main():
     dataset = dataset.prefetch(1)
 
     # Since we repeat the data infinitely, we only need a one-shot iterator.
-    image_batch, label_batch = dataset.make_one_shot_iterator().get_next()
+    image_batch, label_batch, dataset_ids = (
+        dataset.make_one_shot_iterator().get_next())
 
-    model = import_module('networks.' + args.model_type)
+    # This needs a fixed shape.
+    dataset_ids.set_shape([args.batch_size])
 
     # Feed the image through a model.
+    model = import_module('networks.' + args.model_type)
     with tf.name_scope('model'):
         net = model.network(image_batch, is_training=True, **args.model_params)
-        logits = slim.conv2d(net, len(dataset_config['class_names']),
-            [3,3], scope='output_conv', activation_fn=None,
-            weights_initializer=slim.variance_scaling_initializer(),
-            biases_initializer=tf.zeros_initializer())
 
-    # Create the loss, for now we use a simple cross entropy loss.
-    with tf.name_scope('loss'):
+    # Generate a logit for every dataset.
+    with tf.name_scope('logits'):
+        logits = []
+        for d in dataset_configs:
+            logits.append(slim.conv2d(
+                net, len(d['class_names']),[3,3],
+                scope='output_conv_{}'.format(d['dataset_name']),
+                activation_fn=None,
+                weights_initializer=slim.variance_scaling_initializer(),
+                biases_initializer=tf.zeros_initializer()))
+
+    # Create the loss for every dataset.
+    with tf.name_scope('losses'):
         loss_function = getattr(output_losses, args.loss_type)
-        losses = loss_function(
-            logits, label_batch, void=dataset_config['void_label'])
+        weighted_losses = []
+        for i, dataset_config in enumerate(dataset_configs):
+            mask = tf.equal(dataset_ids, i)
+            weight = tf.cast(tf.reduce_sum(tf.cast(mask, tf.int32)), tf.float32)
+            logit_subset = tf.boolean_mask(logits[i], mask)
+            label_subset = tf.boolean_mask(label_batch, mask)
 
-    # Count the total batch loss.
-    loss_mean = tf.reduce_mean(losses)
+            # Do not evaluate the loss for those datasets without images in the
+            # batch.
+            zero_mask = tf.equal(weight, 0)
+            loss = tf.cond(
+                zero_mask,
+                lambda: 0.0,
+                lambda: tf.reduce_mean(
+                    loss_function(logit_subset, label_subset,
+                                  void=dataset_config['void_label'])))
+
+            # Normalize with prior
+            # loss = tf.divide(
+            #    loss, tf.log(float(len(dataset_config['class_names']))))
+
+            summary_loss = tf.cond(zero_mask, lambda: np.nan, lambda: loss)
+
+            tf.summary.scalar(
+                'loss_{}'.format(dataset_config['dataset_name']), summary_loss)
+            tf.summary.scalar(
+                'weight_{}'.format(dataset_config['dataset_name']), weight)
+
+            weighted_losses.append(tf.multiply(loss, weight))
+
+    # Merge all the losses together based on how frequent the underlying
+    # datasets are in this batch.
+    loss_mean = tf.divide(tf.add_n(weighted_losses), args.batch_size)
 
     # Some logging for tensorboard.
-    tf.summary.histogram('loss_distribution', losses)
     tf.summary.scalar('loss', loss_mean)
 
     # Define the optimizer and the learning-rate schedule.
@@ -326,7 +456,7 @@ def main():
             sess.run(tf.global_variables_initializer())
 
             # We also store this initialization as a checkpoint, such that we
-            # could run exactly reproduceable experiments.
+            # could run exactly reproducible experiments.
             checkpoint_saver.save(sess, os.path.join(
                 args.experiment_root, 'checkpoint'), global_step=0)
 
@@ -351,7 +481,8 @@ def main():
                 # Compute the iteration speed and add it to the summary.
                 # We did observe some weird spikes that we couldn't track down.
                 summary2 = tf.Summary()
-                summary2.value.add(tag='secs_per_iter', simple_value=elapsed_time)
+                summary2.value.add(
+                    tag='secs_per_iter', simple_value=elapsed_time)
                 summary_writer.add_summary(summary2, step)
                 summary_writer.add_summary(summary, step)
 

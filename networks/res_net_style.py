@@ -60,7 +60,8 @@ def res_block_v2(input, out_channel_count, conv_op, norm_op, scope,
 
 
 def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
-            separable_conv=False, gn_groups=None, gn_channels=None):
+            separable_conv=False, gn_groups=None, gn_channels=None,
+            concat_skip=True):
     '''ResNet v2 style semantic segmentation network with long range skips.
 
     Args:
@@ -189,7 +190,11 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
                 net = tf.image.resize_nearest_neighbor(
                     net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
                 net = net[:, :tf.shape(skip3)[1], :tf.shape(skip3)[2], :]
-                net = tf.concat([net, skip3], axis=-1)
+                if concat_skip:
+                    net = tf.concat([net, skip3], axis=-1)
+                else:
+                    net = net + conv_op(
+                        skip3, net.shape[-1], [1,1], scope='concat_conv3')
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
@@ -205,7 +210,11 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
                 net = tf.image.resize_nearest_neighbor(
                     net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
                 net = net[:, :tf.shape(skip2)[1], :tf.shape(skip2)[2], :]
-                net = tf.concat([net, skip2], axis=-1)
+                if concat_skip:
+                    net = tf.concat([net, skip2], axis=-1)
+                else:
+                    net = net + conv_op(
+                        skip2, net.shape[-1], [1,1], scope='concat_conv2')
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
@@ -221,7 +230,11 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
                 net = tf.image.resize_nearest_neighbor(
                     net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
                 net = net[:, :tf.shape(skip1)[1], :tf.shape(skip1)[2], :]
-                net = tf.concat([net, skip1], axis=-1)
+                if concat_skip:
+                    net = tf.concat([net, skip1], axis=-1)
+                else:
+                    net = net + conv_op(
+                        skip1, net.shape[-1], [1,1], scope='concat_conv1')
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(
@@ -237,7 +250,11 @@ def network(input, is_training, base_channel_count=48, bottleneck_blocks=False,
                 net = tf.image.resize_nearest_neighbor(
                     net, [tf.shape(net)[1]*2, tf.shape(net)[2]*2])
                 net = net[:, :tf.shape(skip0)[1], :tf.shape(skip0)[2], :]
-                net = tf.concat([net, skip0], axis=-1)
+                if concat_skip:
+                    net = tf.concat([net, skip0], axis=-1)
+                else:
+                    net = net + conv_op(
+                        skip0, net.shape[-1], [1,1], scope='concat_conv0')
 
                 # 2 ResBlocks, store the output for the skip connection
                 net = res_block_v2(

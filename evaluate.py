@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
+import json
+import os
 from argparse import ArgumentParser
 from importlib import import_module
 from itertools import count
-import os
-import sys
 
 import cv2
-import json
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import slim
@@ -14,7 +13,6 @@ from tensorflow.contrib import slim
 import confusion
 import tf_utils
 import utils
-
 
 parser = ArgumentParser(description='Evaluate a semantic segmentation network.')
 
@@ -30,6 +28,11 @@ parser.add_argument(
     '--rgb_input_root', required=True, type=utils.readable_directory,
     help='Path that will be pre-pended to the RGB image filenames in the '
          'eval_set csv.')
+
+parser.add_argument(
+    '--dataset_config', type=str, default=None,
+    help='Path to the json file containing the dataset config. When left blank,'
+         'the first dataset used during training is used.')
 
 parser.add_argument(
     '--full_res_label_root', required=True, type=utils.readable_directory,
@@ -55,6 +58,7 @@ parser.add_argument(
     '--batch_size', type=utils.positive_int, default=10,
     help='Batch size used during forward passes.')
 
+
 def main():
     args = parser.parse_args()
 
@@ -69,6 +73,11 @@ def main():
         if key not in args.__dict__:
             args.__dict__[key] = value
 
+    # In case no dataset config was specified, we need to fix the argument here
+    # since there will be a list of configs.
+    if args.dataset_config is None:
+        args.dataset_config = args_resumed['dataset_config'][0]
+
     # Load the config for the dataset.
     with open(args.dataset_config, 'r') as f:
         dataset_config = json.load(f)
@@ -77,34 +86,26 @@ def main():
     id_to_rgb = np.asarray(
         dataset_config['rgb_colors'] + [(0, 0, 0)], dtype=np.uint8)[:,::-1]
 
-    # If we map from original labels to train labels we have to invert this.
-    original_to_train_mapping = dataset_config.get(
-        'original_to_train_mapping', None)
-    if original_to_train_mapping is None:
-        # This results in an identity mapping.
-        train_to_label_id = np.arange(len(id_to_rgb)-1, dtype=np.uint8)
-    else:
-        train_to_label_id = np.arange(len(id_to_rgb)-1, dtype=np.uint8)
-        for label_id, label_train in enumerate(original_to_train_mapping):
-            if label_train != -1:
-                train_to_label_id[label_train] = label_id
+    # We need to invert the original labels to train labels mapping.
+    original_to_train_mapping = dataset_config.get('original_to_train_mapping')
+    train_to_label_id = np.arange(len(id_to_rgb)-1, dtype=np.uint8)
+    for label_id, label_train in enumerate(original_to_train_mapping):
+        if label_train != -1:
+            train_to_label_id[label_train] = label_id
 
     # Setup the input data.
-    image_files, label_files = utils.load_dataset(
+    file_list = utils.load_dataset(
         args.eval_set, args.rgb_input_root, args.full_res_label_root)
 
-    images = tf.data.Dataset.from_tensor_slices(image_files)
-    labels = tf.data.Dataset.from_tensor_slices(label_files)
-    dataset = tf.data.Dataset.zip((images, labels))
+    dataset = tf.data.Dataset.from_tensor_slices(file_list)
 
     dataset = dataset.map(
-        lambda x,y: tf_utils.string_tuple_to_image_pair(
-            x, y, original_to_train_mapping),
+        lambda x: tf_utils.string_tuple_to_image_pair(
+            x[0], x[1], original_to_train_mapping) + (x[1],),
         num_parallel_calls=args.loading_threads)
-    dataset = tf.data.Dataset.zip((dataset, labels))
 
     # Scale the input images
-    dataset = dataset.map(lambda x, y: (((x[0] - 128.0) / 128.0, x[1]), y))
+    dataset = dataset.map(lambda x, y, z: ((x - 128.0) / 128.0, y, z))
 
     dataset = dataset.batch(args.batch_size)
 
@@ -112,32 +113,56 @@ def main():
     dataset = dataset.prefetch(1)
 
     # Since we repeat the data infinitely, we only need a one-shot iterator.
-    (image_batch, label_batch), label_name_batch = dataset.make_one_shot_iterator().get_next()
+    image_batch, label_batch, label_name_batch = (
+        dataset.make_one_shot_iterator().get_next())
+
+    # Determine the checkpoint location.
+    if args.checkpoint_iteration == -1:
+        # The default TF way to do this fails when moving folders.
+        checkpoint = os.path.join(
+            args.experiment_root,
+            'checkpoint-{}'.format(args.train_iterations))
+    else:
+        checkpoint = os.path.join(
+            args.experiment_root,
+            'checkpoint-{}'.format(args.checkpoint_iteration))
+    iteration = int(checkpoint.split('-')[-1])
+    print('Restoring from checkpoint: {}'.format(checkpoint))
+
+    # Check if the checkpoint contains a specifically named output_conv. This is
+    # needed for models trained with the older single dataset code.
+    reader = tf.train.NewCheckpointReader(checkpoint)
+    var_to_shape_map = reader.get_variable_to_shape_map()
+    output_conv_name = 'output_conv_{}'.format(
+        dataset_config.get('dataset_name'))
+    output_conv_name_found = False
+
+    for k in var_to_shape_map.keys():
+        output_conv_name_found = output_conv_name in k
+        if output_conv_name_found:
+            break
+
+    if not output_conv_name_found:
+        print('Warning: An output for the specific dataset could not be found '
+              'in the checkpoint. This likely means it\'s an old checkpoint. '
+              'Revertig to the old default output name. This could cause '
+              'issues if the dataset class count and output classes of the '
+              'network do not match.')
+        output_conv_name = 'output_conv'
 
     # Setup the network.
     model = import_module('networks.' + args.model_type)
     with tf.name_scope('model'):
         net = model.network(image_batch, is_training=False, **args.model_params)
         logits = slim.conv2d(net, len(dataset_config['class_names']),
-            [3,3], scope='output_conv', activation_fn=None,
+            [3,3], scope=output_conv_name, activation_fn=None,
             weights_initializer=slim.variance_scaling_initializer(),
             biases_initializer=tf.zeros_initializer())
         predictions = tf.nn.softmax(logits)
 
     with tf.Session() as sess:
-        # Determine the checkpoint location.
+        # Load the old weights
         checkpoint_loader = tf.train.Saver()
-        if args.checkpoint_iteration == -1:
-            # The default TF way to do this fails when moving folders.
-            checkpoint = os.path.join(
-                args.experiment_root,
-                'checkpoint-{}'.format(args.train_iterations))
-        else:
-            checkpoint = os.path.join(
-                args.experiment_root,
-                'checkpoint-{}'.format(args.checkpoint_iteration))
-        iteration = int(checkpoint.split('-')[-1])
-        print('Restoring from checkpoint: {}'.format(checkpoint))
         checkpoint_loader.restore(sess, checkpoint)
 
         # Setup storage if needed.
@@ -156,7 +181,7 @@ def main():
                 print(
                     '\rEvaluating batch {}-{}/{}'.format(
                         start_idx, start_idx + args.batch_size,
-                        len(image_files)), flush=True, end='')
+                        len(file_list)), flush=True, end='')
                 preds_batch, gt_batch, gt_fn_batch = sess.run(
                     [predictions, label_batch, label_name_batch])
                 for pred, gt, gt_fn in zip(preds_batch, gt_batch, gt_fn_batch):
@@ -180,7 +205,8 @@ def main():
 
                     if args.save_predictions != 'none':
                         out_filename = gt_fn.decode("utf-8").replace(
-                            args.full_res_label_root, result_directory)
+                            os.path.dirname(args.full_res_label_root),
+                            result_directory)
                         base_dir = os.path.dirname(out_filename)
                         if not os.path.isdir(base_dir):
                             os.makedirs(base_dir)
@@ -201,16 +227,18 @@ def main():
     except (FileNotFoundError, json.JSONDecodeError):
         result_log = {}
 
-    result_log[str(iteration)] = {  # json keys cannot be integers.
-        'confusion matrix' : evaluation.confusion_normalized_row.tolist(),
-        'iou scores' : evaluation.iou_score.tolist(),
-        'class scores' : evaluation.class_score.tolist(),
-        'global score' : evaluation.global_score,
-        'mean iou score' : evaluation.avg_iou_score,
-        'mean class score' : evaluation.avg_score,
+    result_log[
+            str(iteration) + '_' + output_conv_name + '_' + args.eval_set] = {
+        'confusion matrix': evaluation.confusion_normalized_row.tolist(),
+        'iou scores': evaluation.iou_score.tolist(),
+        'class scores': evaluation.class_score.tolist(),
+        'global score': evaluation.global_score,
+        'mean iou score': evaluation.avg_iou_score,
+        'mean class score': evaluation.avg_score,
     }
     with open(result_file, 'w') as f:
         json.dump(result_log, f, ensure_ascii=False, indent=2, sort_keys=True)
+
 
 if __name__ == '__main__':
     main()
