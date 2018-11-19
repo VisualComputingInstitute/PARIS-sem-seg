@@ -12,7 +12,7 @@ from semantic_segmentation_node.srv import *
 try:
     import tensorflow.contrib.tensorrt as trt
     tf.logging.set_verbosity(tf.logging.INFO)
-except ImportError:
+except tf.errors.NotFoundError:
     trt = None
     rospy.loginfo('Could not import TensorRT, disabling it.')
 
