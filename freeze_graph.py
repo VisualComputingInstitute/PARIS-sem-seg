@@ -79,7 +79,10 @@ def main():
 
     # Compute the label to color map
     id_to_rgb = tf.constant(np.asarray(
-        dataset_config['rgb_colors'] + [(0, 0, 0)], dtype=np.uint8)[:,::-1])
+        dataset_config['rgb_colors'] + [(0, 0, 0)], dtype=np.uint8)[:,::-1],
+        name='id_to_rgb')
+    id_to_class_names = tf.constant(np.asarray(
+        dataset_config['class_names'] + ['void']), name='id_to_class_names')
 
     # Setup the input
     image_input = tf.placeholder(
@@ -154,7 +157,8 @@ def main():
         frozen_graph_def = tf.graph_util.convert_variables_to_constants(
             sess,
             sess.graph_def,
-            ['class_probabilities', 'class_colors'])
+            ['class_probabilities', 'class_colors', 'id_to_rgb',
+             'id_to_class_names'])
 
         with tf.gfile.GFile(output_graph, "wb") as f:
             f.write(frozen_graph_def.SerializeToString())
