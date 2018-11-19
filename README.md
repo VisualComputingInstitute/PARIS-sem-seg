@@ -127,10 +127,9 @@ A list of things to try eventually to see how the performance and speed changes.
 
 
 ## Main Todo
-* Replace printing with logging
+* Code downsampling code for Kitti
 * Pull together the eval, predict and freeze script and use the freeze script in
 eval and predict so that code is less redundant and the model is frozen automatically.
-* Upload timing script.
 * Add an input loader and augmentation visualization script.
 * Add parametrization to the network (which convs, which blocks etc. as seen above.)
 * Add an E-net, or a mobile net, this might also include loading pretrained weights.
